@@ -13,3 +13,4 @@ frontend/dist/
 *.spec.bak
 build.log
 *.tsbuildinfo
+donstu_cache/

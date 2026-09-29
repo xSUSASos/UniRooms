@@ -278,6 +278,7 @@ export function SettingsPage() {
           <p className="muted small">База данных: {data.db_path}</p>
         </section>
 
+        <DonstuBox />
         <NetworkBox />
         <LlmBox s={s} setS={setS} />
       </div>
@@ -410,6 +411,97 @@ function LlmBox({ s, setS }: { s: Settings; setS: (s: Settings) => void }) {
           ))}
         </select>
       </Field>
+    </section>
+  )
+}
+
+interface DonstuJob {
+  running: boolean
+  stage?: string
+  done?: number
+  total?: number
+  year: string
+  error?: string | null
+  result?: { rooms: number; teachers: number; groups: number; lessons: number; window?: string[] | null; failed?: string[] } | null
+}
+
+function DonstuBox() {
+  const { reload, toast, confirm } = useApp()
+  const [job, setJob] = useState<DonstuJob | null>(null)
+  const [year, setYear] = useState('')
+
+  useEffect(() => {
+    api.get<DonstuJob>('/api/import/donstu').then((j) => {
+      setJob(j)
+      setYear(j.year)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!job?.running) return
+    const t = setInterval(async () => {
+      const j = await api.get<DonstuJob>('/api/import/donstu')
+      setJob(j)
+      if (!j.running) {
+        clearInterval(t)
+        if (j.error) toast(`Загрузка не удалась: ${j.error}`, 'error')
+        else {
+          await reload()
+          toast('Расписание ДГТУ загружено')
+        }
+      }
+    }, 1500)
+    return () => clearInterval(t)
+  }, [job?.running])
+
+  async function start(refresh: boolean) {
+    if (!(await confirm('Все текущие данные будут заменены расписанием ДГТУ с edu.donstu.ru. Продолжить?', 'Загрузить')))
+      return
+    try {
+      setJob(await api.post<DonstuJob>('/api/import/donstu', { year, refresh }))
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    }
+  }
+
+  const pct = job?.total ? Math.round(((job.done ?? 0) / job.total) * 100) : 0
+  return (
+    <section className="box">
+      <h3>Расписание ДГТУ</h3>
+      <p className="muted">
+        Загружает открытое расписание всех групп университета с edu.donstu.ru (без колледжей): аудитории, преподавателей,
+        группы и занятия реальной двухнедельки (верхняя + нижняя неделя). Вместимость аудиторий и численность групп не
+        публикуются — они оценены; уточните их в справочниках или через Excel.
+      </p>
+      <div className="row gap wrap">
+        <Field label="Учебный год">
+          <input value={year} onChange={(e) => setYear(e.target.value)} placeholder="2026-2027" />
+        </Field>
+      </div>
+      <div className="row gap wrap">
+        <button className="primary" disabled={job?.running} onClick={() => start(false)}>
+          ⬇ Загрузить расписание ДГТУ
+        </button>
+        <button disabled={job?.running} onClick={() => start(true)} title="Скачать заново, не используя сохранённые файлы">
+          Обновить с сайта
+        </button>
+      </div>
+      {job?.running && (
+        <div className="progress-box">
+          <small>
+            {job.stage} {job.total ? `${job.done} из ${job.total}` : ''}
+          </small>
+          <progress max={100} value={pct} />
+        </div>
+      )}
+      {!job?.running && job?.result && (
+        <p className="text-ok">
+          ✓ Загружено: {job.result.groups} групп, {job.result.teachers} преподавателей, {job.result.rooms} аудиторий,{' '}
+          {job.result.lessons} занятий
+          {job.result.window && ` (недели с ${job.result.window[0]})`}
+        </p>
+      )}
+      {!job?.running && job?.error && <p className="text-bad">{job.error}</p>}
     </section>
   )
 }

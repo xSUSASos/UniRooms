@@ -7,7 +7,7 @@ type Kind = 'group' | 'teacher' | 'room'
 interface Meta {
   days: string[]
   pairs: Pair[]
-  groups: { id: number; name: string; course: number }[]
+  groups: { id: number; name: string; course: number; faculty: string }[]
   teachers: { id: number; name: string }[]
   rooms: { id: number; name: string; building: string }[]
   version: number
@@ -24,6 +24,7 @@ interface PubLesson {
   groups: string
   room: string
   building: string
+  online: boolean
 }
 
 const KIND_TITLE: Record<Kind, string> = { group: 'Группа', teacher: 'Преподаватель', room: 'Аудитория' }
@@ -68,7 +69,7 @@ export function PublicView() {
     if (!meta) return []
     const list =
       kind === 'group'
-        ? meta.groups.map((g) => ({ id: g.id, label: g.name, sub: `${g.course} курс` }))
+        ? meta.groups.map((g) => ({ id: g.id, label: g.name, sub: `${g.faculty ? g.faculty + ', ' : ''}${g.course} курс` }))
         : kind === 'teacher'
           ? meta.teachers.map((t) => ({ id: t.id, label: t.name, sub: '' }))
           : meta.rooms.map((r) => ({ id: r.id, label: r.name, sub: `корпус ${r.building}` }))
@@ -103,7 +104,8 @@ export function PublicView() {
   const cell = (d: number, p: number) => shown.filter((l) => l.day === d && l.pair === p)
   const usedPairs = meta.pairs.filter((p) => shown.some((l) => l.pair === p.n))
   const detail = (l: PubLesson) =>
-    [kind !== 'room' && l.room && `ауд. ${l.room}`, kind !== 'teacher' && l.teacher, kind !== 'group' && l.groups]
+    [kind !== 'room' && (l.online ? 'онлайн' : l.room && `ауд. ${l.room}`), kind !== 'teacher' && l.teacher,
+      kind !== 'group' && l.groups]
       .filter(Boolean)
       .join(' · ')
 

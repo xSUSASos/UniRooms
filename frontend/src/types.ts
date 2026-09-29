@@ -44,6 +44,7 @@ export interface Group {
   course: number
   size: number
   home_building: string
+  faculty: string
 }
 
 export interface Lesson {
@@ -60,6 +61,7 @@ export interface Lesson {
   room_id: number | null
   locked: boolean
   fixed_time: boolean
+  online: boolean
 }
 
 export interface Pair {

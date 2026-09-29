@@ -1,6 +1,7 @@
 """REST API consumed by the React frontend."""
 from __future__ import annotations
 
+import re
 import sys
 import time
 from pathlib import Path
@@ -11,7 +12,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import assistant, excel_io, network, solver, timetable
+import threading
+
+from . import assistant, donstu, excel_io, network, solver, timetable
 from .checker import Snapshot, evaluate_grid, find_conflicts, suggest_rooms
 from .db import DAY_SHORT, DAYS, LESSON_KINDS, ROOM_KINDS, WEEKS, Database
 from .seed import seed_demo
@@ -25,7 +28,7 @@ class RoomIn(BaseModel):
     building: str = ""
     floor: int = 1
     capacity: int = Field(ge=0)
-    kind: Literal["lecture", "practice", "lab", "computer"] = "practice"
+    kind: Literal["lecture", "practice", "lab", "computer", "shared"] = "practice"
     computers: int = Field(0, ge=0)
     equipment: list[str] = []
     accessible: bool = False
@@ -53,6 +56,7 @@ class GroupIn(BaseModel):
     course: int = 1
     size: int = Field(ge=0)
     home_building: str = ""
+    faculty: str = ""
 
 
 class LessonIn(BaseModel):
@@ -68,6 +72,7 @@ class LessonIn(BaseModel):
     room_id: int | None = None
     locked: bool = False
     fixed_time: bool = False
+    online: bool = False
 
 
 class BlockIn(BaseModel):
@@ -100,6 +105,7 @@ class SolveIn(BaseModel):
 
 class TimetableIn(BaseModel):
     mode: Literal["full", "repair"] = "repair"
+    faculty: str | None = None
     time_limit: float | None = None
 
 
@@ -121,6 +127,11 @@ class ApplyIn(BaseModel):
     description: str = "Автораспределение"
 
 
+class DonstuIn(BaseModel):
+    year: str | None = None
+    refresh: bool = False
+
+
 class LoginIn(BaseModel):
     password: str = Field(max_length=200)
 
@@ -129,6 +140,14 @@ class NetworkIn(BaseModel):
     enabled: bool
     port: int = Field(8765, ge=1024, le=65535)
     password: str | None = Field(None, max_length=200)
+
+
+def room_order(room: dict) -> tuple:
+    """Numbered buildings first in natural order (1, 2, 10), then named places and rooms without a building."""
+    def natural(text: str) -> list:
+        return [(0, int(part), "") if part.isdigit() else (1, 0, part.lower()) for part in re.findall(r"\d+|\D+", text)]
+
+    return (not room["building"], not room["building"][:1].isdigit(), natural(room["building"]), natural(room["name"]))
 
 
 def public_settings(settings: dict) -> dict:
@@ -176,7 +195,7 @@ def create_app(db: Database, static_dir: Path | None = None, lan: network.LanSer
             "settings": public_settings(db.settings()),
             "version": db.version,
             "equipment": db.equipment(),
-            "rooms": db.all("rooms", "building, name"),
+            "rooms": sorted(db.all("rooms"), key=room_order),
             "blocks": db.all("room_blocks"),
             "teachers": db.all("teachers", "name"),
             "groups": db.all("student_groups", "course, name"),
@@ -266,7 +285,8 @@ def create_app(db: Database, static_dir: Path | None = None, lan: network.LanSer
         return {
             "days": [DAYS[i] for i in range(s["days"])],
             "pairs": s["pairs"],
-            "groups": [{"id": g["id"], "name": g["name"], "course": g["course"]} for g in db.all("student_groups", "course, name")],
+            "groups": [{"id": g["id"], "name": g["name"], "course": g["course"], "faculty": g["faculty"]}
+                       for g in db.all("student_groups", "faculty, course, name")],
             "teachers": [{"id": t["id"], "name": t["name"]} for t in db.all("teachers", "name")],
             "rooms": [{"id": r["id"], "name": r["name"], "building": r["building"]} for r in db.all("rooms", "building, name")],
             "version": db.version,
@@ -283,6 +303,7 @@ def create_app(db: Database, static_dir: Path | None = None, lan: network.LanSer
                 teacher = snap.teachers.get(l["teacher_id"])
                 items.append({
                     "id": l["id"], "day": l["day"], "pair": l["pair"], "week": l["week"], "subject": l["subject"],
+                    "online": l["online"],
                     "kind": LESSON_KINDS.get(l["kind"], l["kind"]),
                     "teacher": teacher["name"] if teacher else "",
                     "groups": ", ".join(snap.groups[g]["name"] for g in l["group_ids"] if g in snap.groups),
@@ -394,7 +415,7 @@ def create_app(db: Database, static_dir: Path | None = None, lan: network.LanSer
 
     @api.post("/timetable")
     def run_timetable(body: TimetableIn):
-        return timetable.solve_timetable(db, body.mode, body.time_limit)
+        return timetable.solve_timetable(db, body.mode, body.time_limit, body.faculty or None)
 
     @api.post("/apply")
     def apply(body: ApplyIn):
@@ -431,6 +452,36 @@ def create_app(db: Database, static_dir: Path | None = None, lan: network.LanSer
         if not res:
             raise HTTPException(400, "Нечего отменять")
         return res
+
+    # ---------- import of the public DSTU schedule ----------
+    job: dict = {"running": False}
+
+    @api.get("/import/donstu")
+    def donstu_status():
+        return {**job, "year": job.get("year") or donstu.current_year()}
+
+    @api.post("/import/donstu")
+    def donstu_start(body: DonstuIn):
+        if job.get("running"):
+            raise HTTPException(409, "Загрузка уже идёт")
+        cache = Path(db.path).resolve().parent / "donstu_cache"
+        job.clear()
+        job.update(running=True, stage="Получаю список групп", done=0, total=0, result=None, error=None,
+                   year=body.year or donstu.current_year())
+
+        def progress(stage, done, total):
+            job.update(stage=stage, done=done, total=total)
+
+        def run():
+            try:
+                job["result"] = donstu.import_donstu(db, cache, job["year"], progress, body.refresh)
+            except Exception as e:  # noqa: BLE001 — reported to the UI
+                job["error"] = str(e)
+            finally:
+                job["running"] = False
+
+        threading.Thread(target=run, daemon=True).start()
+        return job
 
     # ---------- data ----------
     @api.post("/demo")

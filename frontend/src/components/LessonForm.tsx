@@ -17,6 +17,7 @@ const EMPTY: Omit<Lesson, 'id'> = {
   room_id: null,
   locked: false,
   fixed_time: false,
+  online: false,
 }
 
 export function LessonForm({ lesson, onClose }: { lesson: Partial<Lesson>; onClose: () => void }) {
@@ -148,6 +149,12 @@ export function LessonForm({ lesson, onClose }: { lesson: Partial<Lesson>; onClo
             value={f.required_equipment}
             onChange={(v) => set('required_equipment', v as string[])}
           />
+        </Field>
+        <Field label="Формат">
+          <label className="switch">
+            <input type="checkbox" checked={f.online} onChange={(e) => set('online', e.target.checked)} /> 💻 онлайн
+            (аудитория не нужна)
+          </label>
         </Field>
         <Field label="Минимум компьютеров">
           <input type="number" min={0} value={f.min_computers} onChange={(e) => set('min_computers', Number(e.target.value))} />

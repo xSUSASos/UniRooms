@@ -1,6 +1,6 @@
 import { useMemo, useState, type DragEvent } from 'react'
 import { api } from '../api'
-import { DAY_SHORT, shortName, useApp, useLookups } from '../context'
+import { DAY_SHORT, shortName, useApp, useLookups, type SolveMode } from '../context'
 import type { Cell, GridEval, Lesson, Week } from '../types'
 import { SearchBox } from '../components/ui'
 import { BlockRoomDialog } from '../components/BlockRoomDialog'
@@ -17,7 +17,7 @@ interface Row {
   accepts: (l: Lesson) => boolean
 }
 
-const KIND_ICON: Record<string, string> = { lecture: '🎓', practice: '✏️', lab: '🧪', computer: '💻' }
+const KIND_ICON: Record<string, string> = { lecture: '🎓', practice: '✏️', lab: '🧪', computer: '💻', shared: '🏟' }
 
 export function SchedulePage() {
   const { data, conflicts, reload, toast, confirm, openLesson, editLesson, runSolve } = useApp()
@@ -25,6 +25,8 @@ export function SchedulePage() {
   const [day, setDay] = useState(0)
   const [view, setView] = useState<View>('rooms')
   const [building, setBuilding] = useState('')
+  const [faculty, setFaculty] = useState('')
+  const [showAll, setShowAll] = useState(false)
   const [week, setWeek] = useState<Week>('all')
   const [q, setQ] = useState('')
   const [drag, setDrag] = useState<{ id: number; ev: GridEval | null } | null>(null)
@@ -45,10 +47,28 @@ export function SchedulePage() {
       .join(' ')
       .toLowerCase()
       .includes(query)
-  const dayLessons = data.lessons.filter(
-    (l) => l.day === day && (week === 'all' || l.week === 'all' || l.week === week),
+  const dayLessons = useMemo(
+    () => data.lessons.filter((l) => l.day === day && (week === 'all' || l.week === 'all' || l.week === week)),
+    [data.lessons, day, week],
   )
-  const inCell = (pred: (l: Lesson) => boolean) => (p: number) => dayLessons.filter((l) => l.pair === p && pred(l))
+  // lessons by (room | group | teacher, pair) — thousands of rows must not rescan all lessons per cell
+  const index = useMemo(() => {
+    const byRoom = new Map<string, Lesson[]>()
+    const byGroup = new Map<string, Lesson[]>()
+    const byTeacher = new Map<string, Lesson[]>()
+    const push = (m: Map<string, Lesson[]>, k: string, l: Lesson) => {
+      const list = m.get(k)
+      if (list) list.push(l)
+      else m.set(k, [l])
+    }
+    for (const l of dayLessons) {
+      if (!l.online) push(byRoom, `${l.room_id ?? 'none'}:${l.pair}`, l)
+      for (const g of l.group_ids) push(byGroup, `${g}:${l.pair}`, l)
+      if (l.teacher_id !== null) push(byTeacher, `${l.teacher_id}:${l.pair}`, l)
+    }
+    return { byRoom, byGroup, byTeacher }
+  }, [dayLessons])
+  const cellOf = (m: Map<string, Lesson[]>, key: number | string) => (p: number) => m.get(`${key}:${p}`) ?? []
 
   const blockReason = (roomId: number, p: number) => {
     const b = data.blocks.find(
@@ -59,13 +79,13 @@ export function SchedulePage() {
 
   let rows: Row[] = []
   if (view === 'rooms') {
-    const unassigned = dayLessons.filter((l) => l.room_id === null)
+    const unassigned = dayLessons.filter((l) => l.room_id === null && !l.online)
     if (unassigned.length) {
       rows.push({
         key: 'none',
         title: 'Без аудитории',
         sub: `${unassigned.length} занятий`,
-        lessons: inCell((l) => l.room_id === null),
+        lessons: cellOf(index.byRoom, 'none'),
         accepts: () => true,
       })
     }
@@ -77,19 +97,19 @@ export function SchedulePage() {
           title: `${KIND_ICON[r.kind] ?? ''} ${r.name}`,
           sub: `${r.capacity} мест${r.computers ? ` · ${r.computers} ПК` : ''}${r.active ? '' : ' · выкл.'}`,
           tags: r.equipment.map((e) => L.eq.get(e) ?? e),
-          lessons: inCell((l) => l.room_id === r.id),
+          lessons: cellOf(index.byRoom, r.id),
           blocked: (p) => blockReason(r.id, p) ?? (r.active ? null : 'выключена'),
           accepts: () => true,
         })),
     )
   } else if (view === 'groups') {
     rows = data.groups
-      .filter((g) => !building || g.home_building === building)
+      .filter((g) => (!building || g.home_building === building) && (!faculty || g.faculty === faculty))
       .map((g) => ({
         key: g.id,
         title: g.name,
-        sub: `${g.size} чел. · ${g.course} курс${g.home_building ? ` · корп. ${g.home_building}` : ''}`,
-        lessons: inCell((l) => l.group_ids.includes(g.id)),
+        sub: `${g.size} чел. · ${g.course} курс${g.faculty ? ` · ${g.faculty}` : ''}`,
+        lessons: cellOf(index.byGroup, g.id),
         accepts: (l) => l.group_ids.includes(g.id),
       }))
   } else {
@@ -97,7 +117,7 @@ export function SchedulePage() {
       key: t.id,
       title: t.name,
       sub: t.department,
-      lessons: inCell((l) => l.teacher_id === t.id),
+      lessons: cellOf(index.byTeacher, t.id),
       accepts: (l) => l.teacher_id === t.id,
     }))
   }
@@ -106,6 +126,11 @@ export function SchedulePage() {
       (r) => r.title.toLowerCase().includes(query) || pairs.some((p) => r.lessons(p.n).some(matches)),
     )
   }
+
+  if (view !== 'rooms') rows = rows.filter((r) => query || pairs.some((p) => r.lessons(p.n).length))
+  const totalRows = rows.length
+  const ROW_LIMIT = 150
+  if (!showAll && !query) rows = rows.slice(0, ROW_LIMIT)
 
   const dragged = drag ? data.lessons.find((l) => l.id === drag.id) : undefined
 
@@ -191,7 +216,17 @@ export function SchedulePage() {
             </button>
           ))}
         </div>
-        {view !== 'teachers' && (
+        {view === 'groups' && L.faculties.length > 0 && (
+          <select value={faculty} onChange={(e) => setFaculty(e.target.value)} title="Факультет">
+            <option value="">Все факультеты</option>
+            {L.faculties.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        )}
+        {view === 'rooms' && (
           <select value={building} onChange={(e) => setBuilding(e.target.value)} title="Корпус">
             <option value="">Все корпуса</option>
             {L.buildings.map((b) => (
@@ -216,7 +251,7 @@ export function SchedulePage() {
         <button onClick={() => runSolve('repair')} title="Исправить только проблемные занятия, остальное не трогать">
           🛠 Исправить
         </button>
-        <TimeMenu onPick={runSolve} />
+        <TimeMenu onPick={runSolve} faculties={L.faculties} />
         <button onClick={() => setBlockOpen(true)}>🚧 Закрыть аудиторию</button>
         <button onClick={() => editLesson({ day, pair: pairs[0]?.n ?? 1 })}>＋ Занятие</button>
         <a className="button" href="/api/export/schedule.xlsx" download>
@@ -317,17 +352,27 @@ export function SchedulePage() {
           </tbody>
         </table>
         {!rows.length && <div className="empty">Ничего не найдено</div>}
+        {rows.length < totalRows && (
+          <div className="empty">
+            Показано {rows.length} из {totalRows}. Сузьте выбор фильтром или поиском, или{' '}
+            <button className="link" onClick={() => setShowAll(true)}>
+              покажите все
+            </button>{' '}
+            (может работать медленно).
+          </div>
+        )}
       </div>
       {blockOpen && <BlockRoomDialog day={day} onClose={() => setBlockOpen(false)} />}
     </div>
   )
 }
 
-function TimeMenu({ onPick }: { onPick: (m: 'time-repair' | 'time-full') => void }) {
+function TimeMenu({ onPick, faculties }: { onPick: (m: SolveMode, faculty?: string) => void; faculties: string[] }) {
   const [open, setOpen] = useState(false)
+  const [faculty, setFaculty] = useState('')
   const pick = (m: 'time-repair' | 'time-full') => {
     setOpen(false)
-    onPick(m)
+    onPick(m, m === 'time-full' ? faculty : undefined)
   }
   return (
     <span className="menu-wrap">
@@ -344,6 +389,19 @@ function TimeMenu({ onPick }: { onPick: (m: 'time-repair' | 'time-full') => void
             <b>Составить заново</b>
             <small>все незакреплённые пары: без окон, без перегрузки дней, с учётом пожеланий</small>
           </button>
+          {faculties.length > 0 && (
+            <label className="menu-field">
+              для факультета:
+              <select value={faculty} onChange={(e) => setFaculty(e.target.value)}>
+                <option value="">все (долго для большого вуза)</option>
+                {faculties.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       )}
     </span>
@@ -369,8 +427,8 @@ function LessonCard(props: {
     view === 'rooms'
       ? [L.groupNames(l), teacher && shortName(teacher.name)]
       : view === 'groups'
-        ? [room?.name ?? 'нет ауд.', teacher && shortName(teacher.name)]
-        : [room?.name ?? 'нет ауд.', L.groupNames(l)]
+        ? [l.online ? 'онлайн' : room?.name ?? 'нет ауд.', teacher && shortName(teacher.name)]
+        : [l.online ? 'онлайн' : room?.name ?? 'нет ауд.', L.groupNames(l)]
   return (
     <div
       className={[
@@ -394,6 +452,7 @@ function LessonCard(props: {
       <div className="card-top">
         <b>{l.subject}</b>
         {l.week !== 'all' && <span className="wk">{l.week === 'odd' ? 'Ч' : 'З'}</span>}
+        {l.online && <span title="онлайн">💻</span>}
         {l.locked ? <span>🔒</span> : l.fixed_time && <span title="время закреплено">📌</span>}
       </div>
       <div className="card-sub">{parts.filter(Boolean).join(' · ')}</div>

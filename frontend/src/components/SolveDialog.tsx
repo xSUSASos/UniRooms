@@ -102,6 +102,12 @@ export function SolveDialog(props: { mode: SolveMode; result: SolveResult | null
           {r.unassigned.length > 0 && (
             <>
               <h3 className="text-warn">Не удалось разместить: {r.unassigned.length}</h3>
+              {props.mode === 'full' && data.lessons.length > 3000 && (
+                <p className="hint-box">
+                  Для большого расписания лучше «🛠 Исправить»: он меняет только проблемные занятия, а остальные оставляет в
+                  их аудиториях — так свободных мест хватает всем.
+                </p>
+              )}
               {r.unassigned.map((u) => (
                 <div key={u.lesson_id} className="issue warning clickable" onClick={() => openLesson(u.lesson_id)}>
                   <b>{u.label}</b> — {u.reason}

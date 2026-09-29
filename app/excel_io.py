@@ -18,9 +18,9 @@ SHEETS = {
     "Аудитории": ["Номер", "Корпус", "Этаж", "Мест", "Тип", "ПК", "Оборудование", "Доступная среда", "Активна", "Примечание"],
     "Закрытия": ["Аудитория", "День", "Пара", "Причина"],
     "Преподаватели": ["ФИО", "Кафедра", "Доступная среда", "Недоступен", "Пожелания"],
-    "Группы": ["Название", "Курс", "Студентов", "Корпус"],
+    "Группы": ["Название", "Курс", "Студентов", "Корпус", "Факультет"],
     "Занятия": ["Дисциплина", "Тип", "Преподаватель", "Группы", "День", "Пара", "Неделя",
-                "Оборудование", "Мин. ПК", "Аудитория", "Закреплено", "Время закреплено"],
+                "Оборудование", "Мин. ПК", "Аудитория", "Закреплено", "Время закреплено", "Онлайн"],
 }
 
 PREF_HELP = ("Пожелания через «;»: корпус=Б:8 · избегать корпус=В:5 · аудитория=А-101:3 · "
@@ -28,7 +28,7 @@ PREF_HELP = ("Пожелания через «;»: корпус=Б:8 · избе
              "(число после «:» — важность 1–10)")
 
 
-OPTIONAL_COLUMNS = ("Примечание", "Время закреплено")
+OPTIONAL_COLUMNS = ("Примечание", "Время закреплено", "Факультет", "Онлайн")
 
 
 class ImportError_(Exception):
@@ -174,7 +174,7 @@ def export_data(db: Database) -> bytes:
          prefs_to_text(t["preferences"], eq)] for t in s.teachers.values()])
     ws.cell(row=1, column=7, value=PREF_HELP).font = Font(italic=True, color="666666")
     _sheet(wb, "Группы", SHEETS["Группы"], [
-        [g["name"], g["course"], g["size"], g["home_building"]] for g in s.groups.values()])
+        [g["name"], g["course"], g["size"], g["home_building"], g["faculty"]] for g in s.groups.values()])
     _sheet(wb, "Занятия", SHEETS["Занятия"], [
         [l["subject"], LESSON_KINDS.get(l["kind"], l["kind"]),
          s.teachers[l["teacher_id"]]["name"] if l["teacher_id"] in s.teachers else "",
@@ -182,7 +182,7 @@ def export_data(db: Database) -> bytes:
          DAY_SHORT[l["day"]], l["pair"], WEEKS.get(l["week"], l["week"]),
          ", ".join(eq.get(e, e) for e in l["required_equipment"]), l["min_computers"] or "",
          s.rooms[l["room_id"]]["name"] if l["room_id"] in s.rooms else "", _bool_text(l["locked"]),
-         _bool_text(l["fixed_time"])]
+         _bool_text(l["fixed_time"]), _bool_text(l["online"])]
         for l in s.lessons.values()])
     return _save(wb)
 
@@ -283,7 +283,8 @@ def import_data(db: Database, content: bytes) -> dict:
         def parse(r=r):
             name = str(r["Название"]).strip()
             return name, dict(name=name, course=_int(r["Курс"], 1), size=_int(r["Студентов"]),
-                              home_building=str(r["Корпус"] or "").strip())
+                              home_building=str(r["Корпус"] or "").strip(),
+                              faculty=str(r.get("Факультет") or "").strip())
         res = guard("Группы", n, parse)
         if res:
             if res[0] in groups:
@@ -315,7 +316,7 @@ def import_data(db: Database, content: bytes) -> dict:
             return dict(subject=str(r["Дисциплина"]).strip(), kind=kind, teacher=teacher or None, groups=gnames,
                         day=day, pair=_int(r["Пара"], 1), week=week, required_equipment=eq_codes(r["Оборудование"]),
                         min_computers=_int(r["Мин. ПК"]), room=room or None, locked=_yn(r["Закреплено"]),
-                        fixed_time=_yn(r.get("Время закреплено")))
+                        fixed_time=_yn(r.get("Время закреплено")), online=_yn(r.get("Онлайн")))
         res = guard("Занятия", n, parse)
         if res:
             lessons.append(res)
@@ -336,7 +337,7 @@ def import_data(db: Database, content: bytes) -> dict:
         db.save_lesson(dict(subject=l["subject"], kind=l["kind"], teacher_id=teacher_ids.get(l["teacher"]),
                             day=l["day"], pair=l["pair"], week=l["week"], required_equipment=l["required_equipment"],
                             min_computers=l["min_computers"], room_id=room_ids.get(l["room"]), locked=l["locked"],
-                            fixed_time=l["fixed_time"],
+                            fixed_time=l["fixed_time"], online=l["online"],
                             group_ids=[group_ids[g] for g in l["groups"]]))
     return {"rooms": len(rooms), "teachers": len(teachers), "groups": len(groups), "lessons": len(lessons)}
 

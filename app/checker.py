@@ -12,10 +12,15 @@ from .db import DAY_SHORT, LESSON_KINDS, ROOM_KINDS, Database
 
 # How badly a room type fits a lesson type: 0 = fits, 1 = mismatch.
 KIND_MISMATCH = {
-    "lecture": {"lecture": 0, "practice": 1, "lab": 1, "computer": 1},
-    "practice": {"lecture": 1, "practice": 0, "lab": 1, "computer": 1},
-    "lab": {"lecture": 1, "practice": 1, "lab": 0, "computer": 0},
+    "lecture": {"lecture": 0, "practice": 1, "lab": 1, "computer": 1, "shared": 0},
+    "practice": {"lecture": 1, "practice": 0, "lab": 1, "computer": 1, "shared": 0},
+    "lab": {"lecture": 1, "practice": 1, "lab": 0, "computer": 0, "shared": 0},
 }
+
+
+def is_shared(room: dict | None) -> bool:
+    """A venue that hosts several groups at once (sports hall, enterprise) — no room clashes there."""
+    return bool(room) and room.get("kind") == "shared"
 
 PREF_KINDS = {
     "building": "корпус",
@@ -55,6 +60,14 @@ class Snapshot:
         snap.lessons = {lid: dict(l) for lid, l in self.lessons.items()}
         for lid, (day, pair) in times.items():
             snap.lessons[lid]["day"], snap.lessons[lid]["pair"] = day, pair
+        return snap
+
+    def with_rooms(self, rooms: dict[int, int | None]) -> "Snapshot":
+        """Copy of the snapshot with some lessons placed into other rooms."""
+        snap = copy.copy(self)
+        snap.lessons = {lid: dict(l) for lid, l in self.lessons.items()}
+        for lid, rid in rooms.items():
+            snap.lessons[lid]["room_id"] = rid
         return snap
 
     # ---------- basic facts ----------
@@ -186,7 +199,7 @@ class Occupancy:
         self.group = defaultdict(list)
         for l in snap.lessons.values():
             key = (l["day"], l["pair"])
-            if l["room_id"]:
+            if l["room_id"] and not l["online"] and not is_shared(snap.rooms.get(l["room_id"])):
                 self.room[(l["room_id"], *key)].append(l)
             if l["teacher_id"]:
                 self.teacher[(l["teacher_id"], *key)].append(l)
@@ -198,6 +211,8 @@ class Occupancy:
         return [o for o in items if o["id"] != lesson["id"] and weeks_overlap(o["week"], lesson["week"])]
 
     def room_clash(self, lesson, room_id, day, pair):
+        if is_shared(self.snap.rooms.get(room_id)):
+            return []
         return self._others(self.room.get((room_id, day, pair), ()), lesson)
 
     def people_clash(self, lesson, day, pair) -> list[str]:
@@ -284,6 +299,8 @@ def find_conflicts(snap: Snapshot) -> list[dict]:
         if t and [l["day"], l["pair"]] in t["unavailable"]:
             add("teacher", "error", f"{t['name']} недоступен(а) во время «{snap.label(l)}»", [l["id"]])
         room = snap.rooms.get(l["room_id"])
+        if l["online"]:
+            continue
         if room is None:
             add("unassigned", "warning", f"«{snap.label(l)}» без аудитории", [l["id"]])
         else:

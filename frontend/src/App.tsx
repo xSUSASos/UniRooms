@@ -107,11 +107,11 @@ export default function App() {
   }, [reload, toast])
 
   const runSolve = useCallback(
-    async (mode: SolveMode) => {
+    async (mode: SolveMode, faculty?: string) => {
       setSolving({ mode, result: null })
       try {
         const result = mode.startsWith('time-')
-          ? await api.post<SolveResult>('/api/timetable', { mode: mode.slice(5) })
+          ? await api.post<SolveResult>('/api/timetable', { mode: mode.slice(5), faculty: faculty || null })
           : await api.post<SolveResult>('/api/solve', { mode })
         setSolving({ mode, result })
       } catch (e) {

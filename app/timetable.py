@@ -9,25 +9,29 @@ the same subject twice a day, and moving away from the current time.
 Phase 2 — rooms. The regular room solver in "repair" mode runs on the moved schedule, so
 lessons keep their rooms whenever those are still free and suitable.
 
-Modes: "repair" moves as few lessons as possible (only to remove clashes),
-       "full" rebuilds the time of every lesson that is not locked / time-fixed."""
+Modes: "repair" moves only lessons involved in clashes (and as few of them as possible),
+       "full" rebuilds the time of every lesson that is not locked / time-fixed — optionally
+       only for one faculty, which keeps a whole university tractable."""
 from __future__ import annotations
 
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from itertools import combinations
 
 from ortools.sat.python import cp_model
 
-from .checker import Snapshot, weeks_overlap
+from .checker import Snapshot, find_conflicts, is_shared, weeks_overlap
 from .db import Database
-from .solver import solve_rooms
+from .solver import CandidateFinder, solve_rooms
 
 UNPLACED_COST = 1_000_000
 HALVES = ("odd", "even")
+FULL_LIMIT = 6000  # lessons that "full" mode may move at once
+PEOPLE_CONFLICTS = {"teacher", "group", "overload", "slot"}
 
 
-def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None = None) -> dict:
+def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None = None,
+                    faculty: str | None = None) -> dict:
     started = time.perf_counter()
     snap = Snapshot(db)
     w = snap.weights
@@ -38,15 +42,31 @@ def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None
     late_pair = 5
 
     lessons = list(snap.lessons.values())
-    movable = [l for l in lessons if not l["locked"] and not l["fixed_time"]]
-    fixed = [l for l in lessons if l["locked"] or l["fixed_time"]]
+    can_move = [l for l in lessons if not l["locked"] and not l["fixed_time"]]
+    if mode == "repair":
+        involved = {lid for c in find_conflicts(snap) if c["kind"] in PEOPLE_CONFLICTS for lid in c["lesson_ids"]}
+        # lessons that cannot get a room at their current time have to move as well
+        involved |= {u["lesson_id"] for u in solve_rooms(snap, "repair", total_limit * 0.3)["unassigned"]}
+        movable = [l for l in can_move if l["id"] in involved]
+    else:
+        if faculty:
+            movable = [l for l in can_move if l["group_ids"]
+                       and all((snap.groups.get(g) or {}).get("faculty") == faculty for g in l["group_ids"])]
+        else:
+            movable = can_move
+        if len(movable) > FULL_LIMIT:
+            return {"ok": False, "status": "TOO_BIG", "changes": [], "unassigned": [],
+                    "message": f"Слишком много занятий для составления заново ({len(movable)}). "
+                               f"Выберите факультет — время составится только для его групп.",
+                    "seconds": 0}
+    if not movable:
+        return {"ok": True, "status": "OPTIMAL", "optimal": True, "changes": [], "moved_in_time": 0,
+                "unassigned": [], "lessons": len(lessons), "seconds": round(time.perf_counter() - started, 2)}
     movable_ids = {l["id"] for l in movable}
 
-    # suitable rooms regardless of time (blocks are time dependent and handled per slot)
-    cand = {
-        l["id"]: frozenset(r["id"] for r in snap.rooms.values() if not snap.hard_issues(l, r, check_block=False))
-        for l in lessons
-    }
+    finder = CandidateFinder(snap)
+    cand = {l["id"]: frozenset() if l["online"] or is_shared(snap.rooms.get(l["room_id"])) else finder.static_ids(l)
+            for l in movable}
 
     model = cp_model.CpModel()
     y: dict[tuple[int, int, int], cp_model.IntVar] = {}
@@ -89,7 +109,7 @@ def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None
     def halves(items: list[dict], d: int, p: int, half: str) -> list:
         return [at(l, d, p) for l in items if l["week"] in ("all", half)]
 
-    # ---- people: no clashes, day limits, windows ----
+    # ---- people: no clashes, day limits, windows (only owners that have something movable) ----
     by_teacher: dict[int, list[dict]] = defaultdict(list)
     by_group: dict[int, list[dict]] = defaultdict(list)
     for l in lessons:
@@ -97,12 +117,16 @@ def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None
             by_teacher[l["teacher_id"]].append(l)
         for g in l["group_ids"]:
             by_group[g].append(l)
+    touched_teachers = {l["teacher_id"] for l in movable if l["teacher_id"]}
+    touched_groups = {g for l in movable for g in l["group_ids"]}
 
     limit = int(snap.settings.get("max_per_day") or 0)
-    for owner_kind, index, gap_weight in (("t", by_teacher, w["teacher_gap"]), ("g", by_group, w["gap"])):
-        for owner, items in index.items():
-            if not any(l["id"] in movable_ids for l in items):
-                continue  # nothing can change for this owner
+    for owner_kind, index, owners, gap_weight in (
+        ("t", by_teacher, touched_teachers, w["teacher_gap"]),
+        ("g", by_group, touched_groups, w["gap"]),
+    ):
+        for owner in owners:
+            items = index[owner]
             for d in days:
                 busy_prev = 0
                 for p in pairs:
@@ -129,19 +153,24 @@ def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None
                             _at_most(model, terms, limit)
 
     # ---- rooms: capacity relaxation per set of suitable rooms ----
-    signatures = {c for c in cand.values() if c}
-    placed_fixed = {l["id"]: l["room_id"] for l in fixed if l["room_id"] in snap.rooms}
-    for sig in signatures:
-        members = [l for l in lessons if cand[l["id"]] and cand[l["id"]] <= sig
-                   or l["id"] in placed_fixed and placed_fixed[l["id"]] in sig]
-        if not any(l["id"] in movable_ids for l in members):
-            continue
+    staying = [l for l in lessons if l["id"] not in movable_ids and not l["online"]]
+    for sig in {c for c in cand.values() if c}:
+        members = [l for l in movable if cand[l["id"]] and cand[l["id"]] <= sig]
+        occupied: Counter = Counter()  # fixed lessons already sitting in rooms of this set
+        for l in staying:
+            # a staying lesson occupies its room, or — without a valid room yet — one of the rooms it fits
+            fits = finder.static_ids(l)
+            if l["room_id"] in sig if l["room_id"] in snap.rooms else bool(fits) and fits <= sig:
+                for half in HALVES:
+                    if l["week"] in ("all", half):
+                        occupied[(l["day"], l["pair"], half)] += 1
         for d, p in slots:
-            open_rooms = sum(1 for r in sig if not snap.blocked(r, d, p) and snap.rooms[r]["active"])
+            open_rooms = sum(1 for r in sig if not snap.blocked(r, d, p))
             for half in HALVES:
-                terms = halves(members, d, p, half)
-                if len(terms) > open_rooms:
-                    _at_most(model, terms, open_rooms)
+                terms = [v for l in members if l["week"] in ("all", half) and (v := y.get((l["id"], d, p))) is not None]
+                room_left = open_rooms - occupied[(d, p, half)]
+                if len(terms) > room_left:
+                    model.Add(sum(terms) <= max(0, room_left))
 
     # ---- the same subject for the same groups twice a day ----
     if w["spread"]:
@@ -149,6 +178,8 @@ def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None
         for l in lessons:
             same[(l["subject"], l["kind"], tuple(l["group_ids"]))].append(l)
         for items in same.values():
+            if len(items) < 2 or not any(l["id"] in movable_ids for l in items):
+                continue
             for a, b in combinations(items, 2):
                 if a["id"] not in movable_ids and b["id"] not in movable_ids:
                     continue
@@ -157,6 +188,8 @@ def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None
                 for d in days:
                     da = sum(at(a, d, p) for p in pairs)
                     db_ = sum(at(b, d, p) for p in pairs)
+                    if isinstance(da, int) and isinstance(db_, int):
+                        continue
                     z = model.NewBoolVar(f"z{a['id']}_{b['id']}_{d}")
                     model.Add(z >= da + db_ - 1)
                     objective.append(w["spread"] * z)
@@ -189,7 +222,7 @@ def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None
                 new_times[l["id"]] = (d, p)
 
     # ---- phase 2: rooms on the moved schedule ----
-    remaining = max(1.0, total_limit - (time.perf_counter() - started))
+    remaining = max(3.0, total_limit - (time.perf_counter() - started))
     rooms = solve_rooms(snap.with_times(new_times), "repair", remaining)
     room_changes = {c["lesson_id"]: c for c in rooms.get("changes", [])}
 
@@ -219,6 +252,7 @@ def solve_timetable(db: Database, mode: str = "repair", time_limit: float | None
         "optimal": status == cp_model.OPTIMAL and rooms.get("optimal", False),
         "changes": changes,
         "moved_in_time": len(new_times),
+        "considered": len(movable),
         "unassigned": not_placed + rooms.get("unassigned", []),
         "lessons": len(lessons),
         "seconds": round(time.perf_counter() - started, 2),

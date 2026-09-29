@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS student_groups(
     name TEXT NOT NULL UNIQUE,
     course INTEGER NOT NULL DEFAULT 1,
     size INTEGER NOT NULL DEFAULT 25,
-    home_building TEXT NOT NULL DEFAULT ''
+    home_building TEXT NOT NULL DEFAULT '',
+    faculty TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS lessons(
     id INTEGER PRIMARY KEY,
@@ -61,7 +62,8 @@ CREATE TABLE IF NOT EXISTS lessons(
     min_computers INTEGER NOT NULL DEFAULT 0,
     room_id INTEGER REFERENCES rooms(id) ON DELETE SET NULL,
     locked INTEGER NOT NULL DEFAULT 0,
-    fixed_time INTEGER NOT NULL DEFAULT 0
+    fixed_time INTEGER NOT NULL DEFAULT 0,
+    online INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS lesson_groups(
     lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
@@ -83,6 +85,8 @@ CREATE TABLE IF NOT EXISTS history(
 # columns added after v0.1 — applied to existing databases on start
 MIGRATIONS = [
     ("lessons", "fixed_time", "INTEGER NOT NULL DEFAULT 0"),
+    ("student_groups", "faculty", "TEXT NOT NULL DEFAULT ''"),
+    ("lessons", "online", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 ROOM_KINDS = {
@@ -90,6 +94,7 @@ ROOM_KINDS = {
     "practice": "Практическая",
     "lab": "Лаборатория",
     "computer": "Компьютерный класс",
+    "shared": "Общая площадка",  # спортзал, манеж, предприятие: несколько групп одновременно
 }
 LESSON_KINDS = {"lecture": "Лекция", "practice": "Практика", "lab": "Лабораторная"}
 WEEKS = {"all": "Каждую неделю", "odd": "Числитель", "even": "Знаменатель"}
@@ -143,7 +148,7 @@ JSON_COLUMNS = {
 BOOL_COLUMNS = {
     "rooms": ("accessible", "active"),
     "teachers": ("needs_accessible",),
-    "lessons": ("locked", "fixed_time"),
+    "lessons": ("locked", "fixed_time", "online"),
 }
 
 
