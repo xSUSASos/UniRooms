@@ -23,7 +23,7 @@ export interface Block {
 }
 
 export interface Pref {
-  kind: 'building' | 'room' | 'equipment' | 'max_floor'
+  kind: 'building' | 'room' | 'equipment' | 'max_floor' | 'day' | 'pair'
   value: string | number
   mode: 'prefer' | 'avoid'
   weight: number
@@ -59,6 +59,7 @@ export interface Lesson {
   min_computers: number
   room_id: number | null
   locked: boolean
+  fixed_time: boolean
 }
 
 export interface Pair {
@@ -72,6 +73,9 @@ export interface Settings {
   days: number
   weights: Record<string, number>
   time_limit: number
+  max_per_day: number
+  llm: { url: string; model: string }
+  network: { enabled: boolean; port: number; password_set: boolean }
 }
 
 export interface Equipment {
@@ -102,6 +106,13 @@ export interface State {
   }
   history: HistoryItem[]
   db_path: string
+  version: number
+}
+
+export interface Session {
+  local: boolean
+  editor: boolean
+  password_set: boolean
 }
 
 export interface Conflict {
@@ -137,6 +148,8 @@ export interface SolveChange {
   label: string
   day: number
   pair: number
+  to_day: number
+  to_pair: number
   from_room_id: number | null
   from: string | null
   to_room_id: number | null
@@ -149,6 +162,7 @@ export interface SolveResult {
   optimal?: boolean
   message?: string
   changes: SolveChange[]
+  moved_in_time?: number
   unassigned: { lesson_id: number; label: string; reason: string }[]
   seconds: number
 }

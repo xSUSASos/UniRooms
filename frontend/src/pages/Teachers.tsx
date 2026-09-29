@@ -12,10 +12,21 @@ const PREF_KINDS: Record<Pref['kind'], string> = {
   room: 'Аудитория',
   equipment: 'Оборудование',
   max_floor: 'Этаж не выше',
+  day: 'День недели',
+  pair: 'Пара',
 }
 
+const NUMERIC: Pref['kind'][] = ['max_floor', 'day', 'pair']
+
 export function prefLabel(p: Pref, eq: Map<string, string>) {
-  const value = p.kind === 'equipment' ? (p.value === 'computers' ? 'компьютеры' : eq.get(String(p.value)) ?? p.value) : p.value
+  const value =
+    p.kind === 'equipment'
+      ? p.value === 'computers'
+        ? 'компьютеры'
+        : eq.get(String(p.value)) ?? p.value
+      : p.kind === 'day'
+        ? DAY_SHORT[Number(p.value)]
+        : p.value
   const head = PREF_KINDS[p.kind].toLowerCase()
   return `${p.mode === 'avoid' && p.kind !== 'max_floor' ? 'не ' : ''}${head} ${value}`
 }
@@ -89,6 +100,8 @@ function TeacherForm({ teacher, onClose }: { teacher: Partial<Teacher>; onClose:
     if (kind === 'building') return L.buildings.map((b) => [b, b])
     if (kind === 'room') return data.rooms.map((r) => [r.name, r.name])
     if (kind === 'equipment') return [['computers', 'Компьютеры'], ...data.equipment.map((e) => [e.code, e.name])]
+    if (kind === 'day') return data.dicts.days.slice(0, data.settings.days).map((d, i) => [String(i), d])
+    if (kind === 'pair') return data.settings.pairs.map((p) => [String(p.n), `${p.n} пара (${p.start})`])
     return [1, 2, 3, 4, 5].map((n) => [String(n), String(n)])
   }
 
@@ -148,7 +161,7 @@ function TeacherForm({ teacher, onClose }: { teacher: Partial<Teacher>; onClose:
       </div>
 
       <section>
-        <h3>Пожелания к аудиториям</h3>
+        <h3>Пожелания к аудиториям и времени</h3>
         <p className="muted">Солвер старается их выполнить; чем выше важность, тем сильнее. Обязательными они не являются.</p>
         {f.preferences.map((p, i) => (
           <div className="pref-row" key={i}>
@@ -156,7 +169,8 @@ function TeacherForm({ teacher, onClose }: { teacher: Partial<Teacher>; onClose:
               value={p.kind}
               onChange={(e) => {
                 const kind = e.target.value as Pref['kind']
-                setPref(i, { kind, value: String(valueOptions(kind)[0]?.[0] ?? ''), mode: 'prefer' })
+                const first = String(valueOptions(kind)[0]?.[0] ?? '')
+                setPref(i, { kind, value: NUMERIC.includes(kind) ? Number(first) : first, mode: 'prefer' })
               }}
             >
               {Object.entries(PREF_KINDS).map(([k, v]) => (
@@ -171,7 +185,10 @@ function TeacherForm({ teacher, onClose }: { teacher: Partial<Teacher>; onClose:
                 <option value="avoid">избегает</option>
               </select>
             )}
-            <select value={String(p.value)} onChange={(e) => setPref(i, { value: p.kind === 'max_floor' ? Number(e.target.value) : e.target.value })}>
+            <select
+              value={String(p.value)}
+              onChange={(e) => setPref(i, { value: NUMERIC.includes(p.kind) ? Number(e.target.value) : e.target.value })}
+            >
               {valueOptions(p.kind).map(([v, label]) => (
                 <option key={v} value={v}>
                   {label}

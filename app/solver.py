@@ -19,8 +19,11 @@ UNASSIGNED_COST = 100_000
 
 
 def solve(db: Database, mode: str = "full", time_limit: float | None = None) -> dict:
+    return solve_rooms(Snapshot(db), mode, time_limit)
+
+
+def solve_rooms(snap: Snapshot, mode: str = "full", time_limit: float | None = None) -> dict:
     started = time.perf_counter()
-    snap = Snapshot(db)
     w = snap.weights
     time_limit = float(time_limit or snap.settings.get("time_limit", 20))
 
@@ -145,6 +148,8 @@ def solve(db: Database, mode: str = "full", time_limit: float | None = None) -> 
                     "label": snap.label(l),
                     "day": l["day"],
                     "pair": l["pair"],
+                    "to_day": l["day"],
+                    "to_pair": l["pair"],
                     "from_room_id": l["room_id"],
                     "from": old["name"] if old else None,
                     "to_room_id": rid,
@@ -166,9 +171,12 @@ def solve(db: Database, mode: str = "full", time_limit: float | None = None) -> 
 
 def apply(db: Database, changes: list[dict], description: str) -> int:
     rooms = {r["id"] for r in db.all("rooms")}
-    payload = {
-        int(c["lesson_id"]): {"room_id": c["to_room_id"] if c["to_room_id"] in rooms else None} for c in changes
-    }
+    payload = {}
+    for c in changes:
+        item = {"room_id": c.get("to_room_id") if c.get("to_room_id") in rooms else None}
+        if c.get("to_day") is not None and c.get("to_pair") is not None:
+            item["day"], item["pair"] = int(c["to_day"]), int(c["to_pair"])
+        payload[int(c["lesson_id"])] = item
     return db.apply_changes(description, payload)
 
 

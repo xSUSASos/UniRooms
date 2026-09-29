@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from './api'
-import { Ctx, type AppCtx } from './context'
-import type { Conflict, Lesson, SolveResult, State } from './types'
+import { api, ApiError } from './api'
+import { Ctx, type AppCtx, type SolveMode } from './context'
+import type { Conflict, Lesson, Session, SolveResult, State } from './types'
+import { Login } from './components/Login'
 import { Modal } from './components/ui'
 import { LessonPanel } from './components/LessonPanel'
+import { Assistant } from './components/Assistant'
 import { LessonForm } from './components/LessonForm'
 import { SolveDialog } from './components/SolveDialog'
 import { SchedulePage } from './pages/Schedule'
@@ -39,9 +41,13 @@ export default function App() {
   const [confirmState, setConfirmState] = useState<{ message: string; ok: string; resolve: (v: boolean) => void } | null>(null)
   const [openId, setOpenId] = useState<number | null>(null)
   const [editing, setEditing] = useState<Partial<Lesson> | null>(null)
-  const [solving, setSolving] = useState<{ mode: 'full' | 'repair'; result: SolveResult | null } | null>(null)
+  const [solving, setSolving] = useState<{ mode: SolveMode; result: SolveResult | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [assistantOpen, setAssistantOpen] = useState(false)
+  const [session, setSession] = useState<Session | null>(null)
+  const [needLogin, setNeedLogin] = useState(false)
   const toastId = useRef(0)
+  const version = useRef(-1)
 
   const toast = useCallback((message: string, kind: Toast['kind'] = 'ok') => {
     const id = ++toastId.current
@@ -52,17 +58,38 @@ export default function App() {
   const reload = useCallback(async () => {
     try {
       const [s, c] = await Promise.all([api.get<State>('/api/state'), api.get<Conflict[]>('/api/conflicts')])
+      version.current = s.version
       setData(s)
       setConflicts(c)
       setError(null)
+      setNeedLogin(false)
     } catch (e) {
-      setError((e as Error).message)
+      if (e instanceof ApiError && e.status === 401) setNeedLogin(true)
+      else setError((e as Error).message)
     }
   }, [])
 
   useEffect(() => {
+    api
+      .get<Session>('/api/session')
+      .then(setSession)
+      .catch(() => undefined)
     reload()
   }, [reload])
+
+  // several dispatchers may work at once: pick up changes made by others
+  useEffect(() => {
+    const t = setInterval(async () => {
+      if (document.hidden || needLogin) return
+      try {
+        const v = await api.get<{ version: number }>('/api/version')
+        if (version.current !== -1 && v.version !== version.current) await reload()
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) setNeedLogin(true)
+      }
+    }, 4000)
+    return () => clearInterval(t)
+  }, [reload, needLogin])
 
   const confirm = useCallback(
     (message: string, ok = 'Да') => new Promise<boolean>((resolve) => setConfirmState({ message, ok, resolve })),
@@ -80,10 +107,12 @@ export default function App() {
   }, [reload, toast])
 
   const runSolve = useCallback(
-    async (mode: 'full' | 'repair') => {
+    async (mode: SolveMode) => {
       setSolving({ mode, result: null })
       try {
-        const result = await api.post<SolveResult>('/api/solve', { mode })
+        const result = mode.startsWith('time-')
+          ? await api.post<SolveResult>('/api/timetable', { mode: mode.slice(5) })
+          : await api.post<SolveResult>('/api/solve', { mode })
         setSolving({ mode, result })
       } catch (e) {
         setSolving(null)
@@ -104,6 +133,8 @@ export default function App() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [undo])
+
+  if (needLogin) return <Login onDone={reload} />
 
   if (!data) {
     return <div className="loading">{error ? `Не удалось загрузить данные: ${error}` : 'Загрузка…'}</div>
@@ -145,11 +176,28 @@ export default function App() {
               )}
             </button>
           ))}
+          <button className={`nav assistant-btn ${assistantOpen ? 'active' : ''}`} onClick={() => setAssistantOpen(!assistantOpen)}>
+            💬 Помощник
+          </button>
           <div className="sidebar-foot">
             <button className="nav" onClick={undo} disabled={!data.history.length} title="Ctrl+Z">
               ↶ Отменить
             </button>
             {data.history[0] && <small className="muted">Последнее: {data.history[0].description}</small>}
+            <a className="nav" href="/view" target="_blank" rel="noreferrer" title="Страница для преподавателей и студентов">
+              👁 Просмотр расписания
+            </a>
+            {session && !session.local && (
+              <button
+                className="nav"
+                onClick={async () => {
+                  await api.post('/api/logout')
+                  setNeedLogin(true)
+                }}
+              >
+                ⎋ Выйти
+              </button>
+            )}
           </div>
         </nav>
         <main>
@@ -162,6 +210,7 @@ export default function App() {
           {page === 'settings' && <SettingsPage />}
         </main>
         {openId !== null && <LessonPanel id={openId} onClose={() => setOpenId(null)} />}
+        {assistantOpen && <Assistant onClose={() => setAssistantOpen(false)} />}
       </div>
 
       {editing && <LessonForm lesson={editing} onClose={() => setEditing(null)} />}

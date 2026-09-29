@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import { api } from '../api'
-import { DAY_SHORT, useApp } from '../context'
+import { DAY_SHORT, SOLVE_TITLES, useApp, type SolveMode } from '../context'
 import type { SolveResult } from '../types'
 import { Modal } from './ui'
 
-export function SolveDialog(props: { mode: 'full' | 'repair'; result: SolveResult | null; onClose: () => void }) {
+export function SolveDialog(props: { mode: SolveMode; result: SolveResult | null; onClose: () => void }) {
   const { data, reload, toast, openLesson } = useApp()
   const [busy, setBusy] = useState(false)
   const r = props.result
-  const title = props.mode === 'full' ? 'Распределить всё' : 'Исправить проблемные'
+  const title = SOLVE_TITLES[props.mode]
+  const timeMode = props.mode.startsWith('time-')
 
   async function apply() {
     if (!r) return
@@ -16,7 +17,7 @@ export function SolveDialog(props: { mode: 'full' | 'repair'; result: SolveResul
     try {
       const res = await api.post<{ changed: number }>('/api/apply', {
         changes: r.changes,
-        description: props.mode === 'full' ? 'Автораспределение' : 'Исправление',
+        description: title,
       })
       await reload()
       toast(`Применено изменений: ${res.changed}`)
@@ -53,7 +54,9 @@ export function SolveDialog(props: { mode: 'full' | 'repair'; result: SolveResul
       {!r && (
         <div className="solving">
           <div className="spinner" />
-          <p>Подбираю аудитории… (не дольше {data.settings.time_limit} с)</p>
+          <p>
+            {timeMode ? 'Подбираю время и аудитории' : 'Подбираю аудитории'}… (не дольше {data.settings.time_limit} с)
+          </p>
         </div>
       )}
       {r && !r.ok && <p className="text-bad">{r.message}</p>}
@@ -63,13 +66,14 @@ export function SolveDialog(props: { mode: 'full' | 'repair'; result: SolveResul
           {r.changes.length > 0 && (
             <>
               <p>
-                Будет изменено занятий: <b>{r.changes.length}</b>. Проверьте и нажмите «Применить» — отменить можно через Ctrl+Z.
+                Будет изменено занятий: <b>{r.changes.length}</b>
+                {timeMode && <> (из них по времени: {r.moved_in_time ?? 0})</>}. Проверьте и нажмите «Применить» — отменить
+                можно через Ctrl+Z.
               </p>
               <div className="table-wrap short">
                 <table className="table">
                   <thead>
                     <tr>
-                      <th>Когда</th>
                       <th>Занятие</th>
                       <th>Было</th>
                       <th>Станет</th>
@@ -78,13 +82,15 @@ export function SolveDialog(props: { mode: 'full' | 'repair'; result: SolveResul
                   <tbody>
                     {r.changes.map((c) => (
                       <tr key={c.lesson_id}>
-                        <td>
-                          {DAY_SHORT[c.day]} {c.pair}
-                        </td>
                         <td>{c.label}</td>
-                        <td className="muted">{c.from ?? '—'}</td>
+                        <td className="muted">
+                          {DAY_SHORT[c.day]} {c.pair}, {c.from ?? 'без ауд.'}
+                        </td>
                         <td>
-                          <b>{c.to ?? '—'}</b>
+                          <b className={c.to_day !== c.day || c.to_pair !== c.pair ? 'text-accent' : ''}>
+                            {DAY_SHORT[c.to_day]} {c.to_pair}
+                          </b>
+                          , <b>{c.to ?? 'без ауд.'}</b>
                         </td>
                       </tr>
                     ))}

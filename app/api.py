@@ -2,15 +2,16 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, FastAPI, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import excel_io, solver
+from . import assistant, excel_io, network, solver, timetable
 from .checker import Snapshot, evaluate_grid, find_conflicts, suggest_rooms
 from .db import DAY_SHORT, DAYS, LESSON_KINDS, ROOM_KINDS, WEEKS, Database
 from .seed import seed_demo
@@ -33,7 +34,7 @@ class RoomIn(BaseModel):
 
 
 class Preference(BaseModel):
-    kind: Literal["building", "room", "equipment", "max_floor"]
+    kind: Literal["building", "room", "equipment", "max_floor", "day", "pair"]
     value: str | int
     mode: Literal["prefer", "avoid"] = "prefer"
     weight: int = Field(5, ge=1, le=10)
@@ -66,6 +67,7 @@ class LessonIn(BaseModel):
     min_computers: int = Field(0, ge=0)
     room_id: int | None = None
     locked: bool = False
+    fixed_time: bool = False
 
 
 class BlockIn(BaseModel):
@@ -96,14 +98,60 @@ class SolveIn(BaseModel):
     time_limit: float | None = None
 
 
+class TimetableIn(BaseModel):
+    mode: Literal["full", "repair"] = "repair"
+    time_limit: float | None = None
+
+
+class AskIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class ExecIn(BaseModel):
+    action: dict
+
+
 class ApplyIn(BaseModel):
     changes: list[dict]
     description: str = "Автораспределение"
 
 
-def create_app(db: Database, static_dir: Path | None = None) -> FastAPI:
+class LoginIn(BaseModel):
+    password: str = Field(max_length=200)
+
+
+class NetworkIn(BaseModel):
+    enabled: bool
+    port: int = Field(8765, ge=1024, le=65535)
+    password: str | None = Field(None, max_length=200)
+
+
+def public_settings(settings: dict) -> dict:
+    """Settings without secrets."""
+    net = dict(settings.get("network", {}))
+    net["password_set"] = bool(net.pop("password_hash", ""))
+    net.pop("salt", None)
+    return {**settings, "network": net}
+
+
+def create_app(db: Database, static_dir: Path | None = None, lan: network.LanServer | None = None) -> FastAPI:
     app = FastAPI(title="UniRooms", docs_url="/api/docs", openapi_url="/api/openapi.json")
     api = APIRouter(prefix="/api")
+    sessions = network.Sessions()
+    lan = lan or network.LanServer()
+    lan.app = app
+
+    def is_local(request: Request) -> bool:
+        return (request.client.host if request.client else "127.0.0.1") in network.LOCAL_HOSTS
+
+    @app.middleware("http")
+    async def access_control(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/") and not is_local(request):
+            open_paths = path.startswith("/api/public/") or path in ("/api/session", "/api/login")
+            if not open_paths and not sessions.valid(request.cookies.get(network.COOKIE)):
+                return JSONResponse({"detail": "Нужен вход: введите пароль редактора"}, status_code=401)
+        return await call_next(request)
 
     def need(table, id_):
         row = db.get(table, id_)
@@ -120,7 +168,8 @@ def create_app(db: Database, static_dir: Path | None = None) -> FastAPI:
     @api.get("/state")
     def state():
         return {
-            "settings": db.settings(),
+            "settings": public_settings(db.settings()),
+            "version": db.version,
             "equipment": db.equipment(),
             "rooms": db.all("rooms", "building, name"),
             "blocks": db.all("room_blocks"),
@@ -134,8 +183,112 @@ def create_app(db: Database, static_dir: Path | None = None) -> FastAPI:
 
     @api.put("/settings")
     def save_settings(data: dict):
+        data.pop("network", None)  # changed only through /api/network, from this computer
         db.save_settings(data)
-        return db.settings()
+        return public_settings(db.settings())
+
+    @api.get("/version")
+    def version():
+        return {"version": db.version}
+
+    # ---------- session & network ----------
+    @api.get("/session")
+    def session(request: Request):
+        net = db.settings()["network"]
+        local = is_local(request)
+        return {
+            "local": local,
+            "editor": local or sessions.valid(request.cookies.get(network.COOKIE)),
+            "password_set": bool(net.get("password_hash")),
+        }
+
+    @api.post("/login")
+    def login(body: LoginIn, response: Response):
+        net = db.settings()["network"]
+        if not network.check_password(body.password, net.get("password_hash", ""), net.get("salt", "")):
+            raise HTTPException(403, "Неверный пароль")
+        response.set_cookie(network.COOKIE, sessions.issue(), httponly=True, samesite="lax", max_age=30 * 86400)
+        return {"ok": True}
+
+    @api.post("/logout")
+    def logout(request: Request, response: Response):
+        sessions.revoke(request.cookies.get(network.COOKIE))
+        response.delete_cookie(network.COOKIE)
+        return {"ok": True}
+
+    def network_info() -> dict:
+        net = db.settings()["network"]
+        port = lan.port or net.get("port", 8765)
+        return {
+            "enabled": bool(net.get("enabled")),
+            "running": lan.running,
+            "error": lan.error,
+            "port": net.get("port", 8765),
+            "password_set": bool(net.get("password_hash")),
+            "urls": [f"http://{ip}:{port}/" for ip in network.local_ips()],
+        }
+
+    @api.get("/network")
+    def get_network():
+        return network_info()
+
+    @api.put("/network")
+    def set_network(body: NetworkIn, request: Request):
+        if not is_local(request):
+            raise HTTPException(403, "Сетевой доступ настраивается только на главном компьютере")
+        net = db.settings()["network"]
+        if body.password:
+            net["password_hash"], net["salt"] = network.hash_password(body.password)
+            sessions.revoke()
+        if body.enabled and not net.get("password_hash"):
+            raise HTTPException(400, "Сначала задайте пароль редактора")
+        net.update(enabled=body.enabled, port=body.port)
+        db.save_settings({"network": net})
+        if body.enabled:
+            lan.start(body.port)
+            for _ in range(50):  # wait for uvicorn to bind
+                if lan.running or lan.error:
+                    break
+                time.sleep(0.1)
+        else:
+            lan.stop()
+        return network_info()
+
+    # ---------- public read-only schedule (teachers, students) ----------
+    @api.get("/public/meta")
+    def public_meta():
+        s = db.settings()
+        return {
+            "days": [DAYS[i] for i in range(s["days"])],
+            "pairs": s["pairs"],
+            "groups": [{"id": g["id"], "name": g["name"], "course": g["course"]} for g in db.all("student_groups", "course, name")],
+            "teachers": [{"id": t["id"], "name": t["name"]} for t in db.all("teachers", "name")],
+            "rooms": [{"id": r["id"], "name": r["name"], "building": r["building"]} for r in db.all("rooms", "building, name")],
+            "version": db.version,
+        }
+
+    @api.get("/public/schedule")
+    def public_schedule(kind: Literal["group", "teacher", "room"], id: int):
+        snap = Snapshot(db)
+        items = []
+        for l in snap.lessons.values():
+            if (kind == "group" and id in l["group_ids"]) or (kind == "teacher" and l["teacher_id"] == id) \
+                    or (kind == "room" and l["room_id"] == id):
+                room = snap.rooms.get(l["room_id"])
+                teacher = snap.teachers.get(l["teacher_id"])
+                items.append({
+                    "id": l["id"], "day": l["day"], "pair": l["pair"], "week": l["week"], "subject": l["subject"],
+                    "kind": LESSON_KINDS.get(l["kind"], l["kind"]),
+                    "teacher": teacher["name"] if teacher else "",
+                    "groups": ", ".join(snap.groups[g]["name"] for g in l["group_ids"] if g in snap.groups),
+                    "room": room["name"] if room else "", "building": room["building"] if room else "",
+                })
+        items.sort(key=lambda x: (x["day"], x["pair"], x["week"]))
+        return {"lessons": items, "version": db.version}
+
+    @api.get("/public/version")
+    def public_version():
+        return {"version": db.version}
 
     # ---------- equipment ----------
     @api.post("/equipment")
@@ -234,9 +387,29 @@ def create_app(db: Database, static_dir: Path | None = None) -> FastAPI:
     def run_solver(body: SolveIn):
         return solver.solve(db, body.mode, body.time_limit)
 
+    @api.post("/timetable")
+    def run_timetable(body: TimetableIn):
+        return timetable.solve_timetable(db, body.mode, body.time_limit)
+
     @api.post("/apply")
     def apply(body: ApplyIn):
         return {"changed": solver.apply(db, body.changes, body.description)}
+
+    # ---------- assistant ----------
+    @api.get("/assistant/status")
+    def assistant_status():
+        return assistant.status(db.settings())
+
+    @api.post("/assistant/interpret")
+    def assistant_interpret(body: AskIn):
+        return assistant.interpret(db, body.text)
+
+    @api.post("/assistant/execute")
+    def assistant_execute(body: ExecIn):
+        try:
+            return assistant.execute(db, body.action)
+        except (ValueError, KeyError, TypeError) as e:
+            raise HTTPException(400, f"Не удалось выполнить: {e}") from e
 
     @api.post("/undo")
     def undo():

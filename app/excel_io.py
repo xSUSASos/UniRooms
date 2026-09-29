@@ -20,11 +20,15 @@ SHEETS = {
     "Преподаватели": ["ФИО", "Кафедра", "Доступная среда", "Недоступен", "Пожелания"],
     "Группы": ["Название", "Курс", "Студентов", "Корпус"],
     "Занятия": ["Дисциплина", "Тип", "Преподаватель", "Группы", "День", "Пара", "Неделя",
-                "Оборудование", "Мин. ПК", "Аудитория", "Закреплено"],
+                "Оборудование", "Мин. ПК", "Аудитория", "Закреплено", "Время закреплено"],
 }
 
 PREF_HELP = ("Пожелания через «;»: корпус=Б:8 · избегать корпус=В:5 · аудитория=А-101:3 · "
-             "оборудование=Проектор:4 · этаж<=2:5 (число после «:» — важность 1–10)")
+             "оборудование=Проектор:4 · этаж<=2:5 · день=Пн:5 · избегать пара=1:6 "
+             "(число после «:» — важность 1–10)")
+
+
+OPTIONAL_COLUMNS = ("Примечание", "Время закреплено")
 
 
 class ImportError_(Exception):
@@ -87,6 +91,13 @@ def prefs_to_text(prefs: list[dict], eq_names: dict) -> str:
         if p["kind"] == "max_floor":
             parts.append(f"этаж<={p['value']}:{w}")
             continue
+        avoid = "избегать " if p.get("mode") == "avoid" else ""
+        if p["kind"] == "day":
+            parts.append(f"{avoid}день={DAY_SHORT[int(p['value'])]}:{w}")
+            continue
+        if p["kind"] == "pair":
+            parts.append(f"{avoid}пара={p['value']}:{w}")
+            continue
         head = {"building": "корпус", "room": "аудитория", "equipment": "оборудование"}[p["kind"]]
         value = eq_names.get(p["value"], p["value"]) if p["kind"] == "equipment" else p["value"]
         if p["kind"] == "equipment" and p["value"] == "computers":
@@ -98,7 +109,7 @@ def prefs_to_text(prefs: list[dict], eq_names: dict) -> str:
 def text_to_prefs(text, eq_by_name: dict) -> list[dict]:
     prefs = []
     for part in [s.strip() for s in str(text or "").split(";") if s.strip()]:
-        m = re.fullmatch(r"(?i)(избегать\s+)?(корпус|аудитория|оборудование|этаж)\s*(<=|=)\s*([^:]+?)\s*(?::\s*(\d+))?", part)
+        m = re.fullmatch(r"(?i)(избегать\s+)?(корпус|аудитория|оборудование|этаж|день|пара)\s*(<=|=)\s*([^:]+?)\s*(?::\s*(\d+))?", part)
         if not m:
             raise ValueError(f"не понял пожелание «{part}»")
         avoid, head, _, value, weight = m.groups()
@@ -106,6 +117,12 @@ def text_to_prefs(text, eq_by_name: dict) -> list[dict]:
         head = head.lower()
         if head == "этаж":
             prefs.append({"kind": "max_floor", "value": int(value), "mode": "prefer", "weight": weight})
+            continue
+        if head == "день":
+            prefs.append({"kind": "day", "value": _day(value), "mode": "avoid" if avoid else "prefer", "weight": weight})
+            continue
+        if head == "пара":
+            prefs.append({"kind": "pair", "value": int(value), "mode": "avoid" if avoid else "prefer", "weight": weight})
             continue
         kind = {"корпус": "building", "аудитория": "room", "оборудование": "equipment"}[head]
         if kind == "equipment":
@@ -164,7 +181,8 @@ def export_data(db: Database) -> bytes:
          ", ".join(s.groups[g]["name"] for g in l["group_ids"] if g in s.groups),
          DAY_SHORT[l["day"]], l["pair"], WEEKS.get(l["week"], l["week"]),
          ", ".join(eq.get(e, e) for e in l["required_equipment"]), l["min_computers"] or "",
-         s.rooms[l["room_id"]]["name"] if l["room_id"] in s.rooms else "", _bool_text(l["locked"])]
+         s.rooms[l["room_id"]]["name"] if l["room_id"] in s.rooms else "", _bool_text(l["locked"]),
+         _bool_text(l["fixed_time"])]
         for l in s.lessons.values()])
     return _save(wb)
 
@@ -180,7 +198,7 @@ def import_data(db: Database, content: bytes) -> dict:
         ws = wb[title]
         header = [str(c.value or "").strip() for c in ws[1]]
         idx = {h: i for i, h in enumerate(header)}
-        missing = [h for h in SHEETS[title] if h not in idx and h not in ("Примечание",)]
+        missing = [h for h in SHEETS[title] if h not in idx and h not in OPTIONAL_COLUMNS]
         if missing:
             errors.append(f"лист «{title}»: нет столбцов {', '.join(missing)}")
             return []
@@ -296,7 +314,8 @@ def import_data(db: Database, content: bytes) -> dict:
                 raise ValueError("не указан день")
             return dict(subject=str(r["Дисциплина"]).strip(), kind=kind, teacher=teacher or None, groups=gnames,
                         day=day, pair=_int(r["Пара"], 1), week=week, required_equipment=eq_codes(r["Оборудование"]),
-                        min_computers=_int(r["Мин. ПК"]), room=room or None, locked=_yn(r["Закреплено"]))
+                        min_computers=_int(r["Мин. ПК"]), room=room or None, locked=_yn(r["Закреплено"]),
+                        fixed_time=_yn(r.get("Время закреплено")))
         res = guard("Занятия", n, parse)
         if res:
             lessons.append(res)
@@ -317,6 +336,7 @@ def import_data(db: Database, content: bytes) -> dict:
         db.save_lesson(dict(subject=l["subject"], kind=l["kind"], teacher_id=teacher_ids.get(l["teacher"]),
                             day=l["day"], pair=l["pair"], week=l["week"], required_equipment=l["required_equipment"],
                             min_computers=l["min_computers"], room_id=room_ids.get(l["room"]), locked=l["locked"],
+                            fixed_time=l["fixed_time"],
                             group_ids=[group_ids[g] for g in l["groups"]]))
     return {"rooms": len(rooms), "teachers": len(teachers), "groups": len(groups), "lessons": len(lessons)}
 

@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS lessons(
     required_equipment TEXT NOT NULL DEFAULT '[]',
     min_computers INTEGER NOT NULL DEFAULT 0,
     room_id INTEGER REFERENCES rooms(id) ON DELETE SET NULL,
-    locked INTEGER NOT NULL DEFAULT 0
+    locked INTEGER NOT NULL DEFAULT 0,
+    fixed_time INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS lesson_groups(
     lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
@@ -78,6 +79,11 @@ CREATE TABLE IF NOT EXISTS history(
     changes TEXT NOT NULL
 );
 """
+
+# columns added after v0.1 — applied to existing databases on start
+MIGRATIONS = [
+    ("lessons", "fixed_time", "INTEGER NOT NULL DEFAULT 0"),
+]
 
 ROOM_KINDS = {
     "lecture": "Лекционная",
@@ -116,8 +122,17 @@ DEFAULT_SETTINGS = {
         "home": 6,  # group outside its home building
         "move": 25,  # building change between consecutive pairs
         "stability": 60,  # moving an already valid lesson in "repair" mode
+        # time scheduling
+        "gap": 30,  # a "window" in a group's day
+        "teacher_gap": 10,  # a "window" in a teacher's day
+        "late": 5,  # per lesson on late pairs (5+) and on Saturday
+        "spread": 20,  # same subject for the same groups twice on one day
+        "time_stability": 40,  # moving a lesson in time when only fixing clashes
     },
     "time_limit": 20,
+    "max_per_day": 4,  # max pairs per day for a group (0 = no limit)
+    "llm": {"url": "http://127.0.0.1:11434", "model": ""},
+    "network": {"enabled": False, "port": 8765, "password_hash": "", "salt": ""},
 }
 
 JSON_COLUMNS = {
@@ -128,7 +143,7 @@ JSON_COLUMNS = {
 BOOL_COLUMNS = {
     "rooms": ("accessible", "active"),
     "teachers": ("needs_accessible",),
-    "lessons": ("locked",),
+    "lessons": ("locked", "fixed_time"),
 }
 
 
@@ -151,6 +166,11 @@ class Database:
         if self.path != ":memory:":
             self._conn.execute("PRAGMA journal_mode = WAL")
         self._conn.executescript(SCHEMA)
+        for table, column, ddl in MIGRATIONS:
+            cols = {r[1] for r in self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+        self.version = 0  # bumped on every write, lets clients notice changes made by others
         if not self._conn.execute("SELECT 1 FROM equipment LIMIT 1").fetchone():
             self._conn.executemany("INSERT INTO equipment VALUES(?, ?)", DEFAULT_EQUIPMENT)
         self._conn.commit()
@@ -162,6 +182,7 @@ class Database:
             try:
                 yield self._conn
                 self._conn.commit()
+                self.version += 1
             except Exception:
                 self._conn.rollback()
                 raise
@@ -280,8 +301,8 @@ class Database:
             stored = {k: json.loads(v) for k, v in self._conn.execute("SELECT key, value FROM settings")}
         result = json.loads(json.dumps(DEFAULT_SETTINGS))
         for k, v in stored.items():
-            if k == "weights" and isinstance(v, dict):
-                result["weights"].update(v)
+            if isinstance(v, dict) and isinstance(result.get(k), dict):
+                result[k].update(v)
             else:
                 result[k] = v
         return result

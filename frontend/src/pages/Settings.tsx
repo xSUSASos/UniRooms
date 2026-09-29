@@ -1,8 +1,18 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useApp } from '../context'
 import type { Settings } from '../types'
 import { Field } from '../components/ui'
+import type { LlmStatus } from '../components/Assistant'
+
+interface NetInfo {
+  enabled: boolean
+  running: boolean
+  error: string | null
+  port: number
+  password_set: boolean
+  urls: string[]
+}
 
 const WEIGHTS: { key: string; title: string; hint: string }[] = [
   { key: 'preference', title: 'Пожелания преподавателей', hint: 'умножается на важность пожелания (1–10)' },
@@ -12,6 +22,38 @@ const WEIGHTS: { key: string; title: string; hint: string }[] = [
   { key: 'waste', title: 'Пустые места', hint: 'за каждые 10% незанятых мест' },
   { key: 'stability', title: 'Стабильность при «Исправить»', hint: 'цена переноса занятия, которое и так корректно' },
 ]
+
+const TIME_WEIGHTS: { key: string; title: string; hint: string }[] = [
+  { key: 'gap', title: 'Окна у групп', hint: 'пустая пара между занятиями группы' },
+  { key: 'teacher_gap', title: 'Окна у преподавателей', hint: 'пустая пара между занятиями преподавателя' },
+  { key: 'spread', title: 'Один предмет дважды в день', hint: 'одна и та же дисциплина у тех же групп в один день' },
+  { key: 'late', title: 'Поздние пары и суббота', hint: 'за каждое занятие с 5-й пары или в субботу' },
+  { key: 'time_stability', title: 'Стабильность при «Убрать накладки»', hint: 'цена переноса пары без накладок' },
+]
+
+function WeightRow(props: {
+  w: { key: string; title: string; hint: string }
+  s: Settings
+  setS: (s: Settings) => void
+}) {
+  const { w, s, setS } = props
+  return (
+    <div className="weight-row">
+      <div>
+        <b>{w.title}</b>
+        <small>{w.hint}</small>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={s.weights[w.key] ?? 0}
+        onChange={(e) => setS({ ...s, weights: { ...s.weights, [w.key]: Number(e.target.value) } })}
+      />
+      <b className="num">{s.weights[w.key]}</b>
+    </div>
+  )
+}
 
 export function SettingsPage() {
   const { data, reload, toast, confirm } = useApp()
@@ -111,20 +153,7 @@ export function SettingsPage() {
           <h3>Важность правил</h3>
           <p className="muted">Чем больше число, тем сильнее солвер старается выполнить правило.</p>
           {WEIGHTS.map((w) => (
-            <div key={w.key} className="weight-row">
-              <div>
-                <b>{w.title}</b>
-                <small>{w.hint}</small>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={s.weights[w.key] ?? 0}
-                onChange={(e) => setS({ ...s, weights: { ...s.weights, [w.key]: Number(e.target.value) } })}
-              />
-              <b className="num">{s.weights[w.key]}</b>
-            </div>
+            <WeightRow key={w.key} w={w} s={s} setS={setS} />
           ))}
           <Field label="Лимит времени солвера, сек">
             <input
@@ -135,6 +164,22 @@ export function SettingsPage() {
               onChange={(e) => setS({ ...s, time_limit: Number(e.target.value) })}
             />
           </Field>
+        </section>
+
+        <section className="box">
+          <h3>Подбор времени</h3>
+          <Field label="Не больше пар в день у группы" hint="0 — без ограничения (жёсткое правило)">
+            <input
+              type="number"
+              min={0}
+              max={10}
+              value={s.max_per_day}
+              onChange={(e) => setS({ ...s, max_per_day: Number(e.target.value) })}
+            />
+          </Field>
+          {TIME_WEIGHTS.map((w) => (
+            <WeightRow key={w.key} w={w} s={s} setS={setS} />
+          ))}
         </section>
 
         <section className="box">
@@ -232,7 +277,139 @@ export function SettingsPage() {
           </div>
           <p className="muted small">База данных: {data.db_path}</p>
         </section>
+
+        <NetworkBox />
+        <LlmBox s={s} setS={setS} />
       </div>
     </div>
+  )
+}
+
+function NetworkBox() {
+  const { toast } = useApp()
+  const [info, setInfo] = useState<NetInfo | null>(null)
+  const [port, setPort] = useState(8765)
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [local, setLocal] = useState(true)
+
+  useEffect(() => {
+    api.get<NetInfo>('/api/network').then((n) => {
+      setInfo(n)
+      setPort(n.port)
+    })
+    api.get<{ local: boolean }>('/api/session').then((s) => setLocal(s.local))
+  }, [])
+
+  async function apply(enabled: boolean) {
+    setBusy(true)
+    try {
+      const n = await api.put<NetInfo>('/api/network', { enabled, port, password: password || null })
+      setInfo(n)
+      setPassword('')
+      if (n.error) toast(`Не удалось открыть доступ: ${n.error}`, 'error')
+      else toast(enabled ? 'Доступ по сети открыт' : 'Доступ по сети закрыт')
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!info) return null
+  return (
+    <section className="box">
+      <h3>Доступ по сети</h3>
+      <p className="muted">
+        Другие диспетчеры открывают программу в браузере по адресу ниже и входят по паролю. Преподаватели и студенты
+        смотрят расписание на странице <b>/view</b> — без пароля, только чтение. Windows может спросить разрешение для
+        брандмауэра — разрешите для частной сети.
+      </p>
+      {!local && <p className="text-warn">Настраивается только на главном компьютере.</p>}
+      <div className="row gap wrap">
+        <Field label="Порт">
+          <input type="number" min={1024} max={65535} value={port} onChange={(e) => setPort(Number(e.target.value))} />
+        </Field>
+        <Field label={info.password_set ? 'Новый пароль (необязательно)' : 'Пароль редактора'}>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+        </Field>
+      </div>
+      <div className="row gap">
+        {info.running ? (
+          <>
+            <span className="pill green">● открыт</span>
+            <button disabled={busy || !local} onClick={() => apply(true)}>
+              Сохранить
+            </button>
+            <button className="danger" disabled={busy || !local} onClick={() => apply(false)}>
+              Закрыть доступ
+            </button>
+          </>
+        ) : (
+          <button
+            className="primary"
+            disabled={busy || !local || (!info.password_set && password.length < 4)}
+            onClick={() => apply(true)}
+            title={!info.password_set ? 'Задайте пароль (от 4 символов)' : ''}
+          >
+            Открыть доступ по сети
+          </button>
+        )}
+      </div>
+      {info.error && <p className="text-bad">{info.error}</p>}
+      {info.running && (
+        <div className="urls">
+          {info.urls.map((u) => (
+            <div key={u}>
+              <span className="muted">Редактирование:</span> <code>{u}</code> · <span className="muted">просмотр:</span>{' '}
+              <code>{u}view</code>
+            </div>
+          ))}
+          {!info.urls.length && <p className="muted">Не удалось определить IP-адрес компьютера.</p>}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function LlmBox({ s, setS }: { s: Settings; setS: (s: Settings) => void }) {
+  const [status, setStatus] = useState<LlmStatus | null>(null)
+  const check = () => api.get<LlmStatus>('/api/assistant/status').then(setStatus).catch(() => setStatus(null))
+  useEffect(() => {
+    check()
+  }, [])
+  return (
+    <section className="box">
+      <h3>ИИ-помощник</h3>
+      <p className="muted">
+        Помощник понимает команды обычным языком. Работает через локальную модель в Ollama — без интернета, данные не
+        покидают компьютер.
+      </p>
+      <p>
+        {status?.available ? (
+          <span className="pill green">● подключено: {status.model}</span>
+        ) : (
+          <span className="pill yellow">
+            Ollama не найдена — установите с ollama.com и выполните <code>ollama pull qwen2.5:7b</code>
+          </span>
+        )}{' '}
+        <button className="small" onClick={check}>
+          Проверить
+        </button>
+      </p>
+      <Field label="Адрес Ollama">
+        <input value={s.llm.url} onChange={(e) => setS({ ...s, llm: { ...s.llm, url: e.target.value } })} />
+      </Field>
+      <Field label="Модель" hint="Сохраните настройки, чтобы применить">
+        <select value={s.llm.model} onChange={(e) => setS({ ...s, llm: { ...s.llm, model: e.target.value } })}>
+          <option value="">автоматически (первая установленная)</option>
+          {status?.models.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
+      </Field>
+    </section>
   )
 }

@@ -216,6 +216,7 @@ export function SchedulePage() {
         <button onClick={() => runSolve('repair')} title="Исправить только проблемные занятия, остальное не трогать">
           🛠 Исправить
         </button>
+        <TimeMenu onPick={runSolve} />
         <button onClick={() => setBlockOpen(true)}>🚧 Закрыть аудиторию</button>
         <button onClick={() => editLesson({ day, pair: pairs[0]?.n ?? 1 })}>＋ Занятие</button>
         <a className="button" href="/api/export/schedule.xlsx" download>
@@ -322,6 +323,33 @@ export function SchedulePage() {
   )
 }
 
+function TimeMenu({ onPick }: { onPick: (m: 'time-repair' | 'time-full') => void }) {
+  const [open, setOpen] = useState(false)
+  const pick = (m: 'time-repair' | 'time-full') => {
+    setOpen(false)
+    onPick(m)
+  }
+  return (
+    <span className="menu-wrap">
+      <button onClick={() => setOpen(!open)} title="Автоматический подбор дня и пары">
+        🕒 Время ▾
+      </button>
+      {open && (
+        <div className="menu" onMouseLeave={() => setOpen(false)}>
+          <button onClick={() => pick('time-repair')}>
+            <b>Убрать накладки</b>
+            <small>переносит минимум пар, чтобы у групп и преподавателей не было накладок</small>
+          </button>
+          <button onClick={() => pick('time-full')}>
+            <b>Составить заново</b>
+            <small>все незакреплённые пары: без окон, без перегрузки дней, с учётом пожеланий</small>
+          </button>
+        </div>
+      )}
+    </span>
+  )
+}
+
 function LessonCard(props: {
   l: Lesson
   view: View
@@ -366,7 +394,7 @@ function LessonCard(props: {
       <div className="card-top">
         <b>{l.subject}</b>
         {l.week !== 'all' && <span className="wk">{l.week === 'odd' ? 'Ч' : 'З'}</span>}
-        {l.locked && <span>🔒</span>}
+        {l.locked ? <span>🔒</span> : l.fixed_time && <span title="время закреплено">📌</span>}
       </div>
       <div className="card-sub">{parts.filter(Boolean).join(' · ')}</div>
     </div>

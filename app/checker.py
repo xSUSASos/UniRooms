@@ -4,10 +4,11 @@ Everything here is pure computation over a `Snapshot` of the database, so the so
 the API and the tests all share exactly the same rules."""
 from __future__ import annotations
 
+import copy
 from collections import defaultdict
 from itertools import combinations
 
-from .db import LESSON_KINDS, ROOM_KINDS, Database
+from .db import DAY_SHORT, LESSON_KINDS, ROOM_KINDS, Database
 
 # How badly a room type fits a lesson type: 0 = fits, 1 = mismatch.
 KIND_MISMATCH = {
@@ -21,7 +22,11 @@ PREF_KINDS = {
     "room": "аудитория",
     "equipment": "оборудование",
     "max_floor": "этаж не выше",
+    "day": "день",
+    "pair": "пара",
 }
+ROOM_PREFS = {"building", "room", "equipment", "max_floor"}
+TIME_PREFS = {"day", "pair"}
 
 
 def weeks_overlap(a: str, b: str) -> bool:
@@ -44,6 +49,14 @@ class Snapshot:
         for b in db.all("room_blocks"):
             self.blocks[b["room_id"]].append(b)
 
+    def with_times(self, times: dict[int, tuple[int, int]]) -> "Snapshot":
+        """Copy of the snapshot with some lessons moved to other (day, pair) slots."""
+        snap = copy.copy(self)
+        snap.lessons = {lid: dict(l) for lid, l in self.lessons.items()}
+        for lid, (day, pair) in times.items():
+            snap.lessons[lid]["day"], snap.lessons[lid]["pair"] = day, pair
+        return snap
+
     # ---------- basic facts ----------
     def size(self, lesson: dict) -> int:
         return sum(self.groups[g]["size"] for g in lesson["group_ids"] if g in self.groups)
@@ -65,7 +78,9 @@ class Snapshot:
         return self.equipment_names.get(code, code)
 
     # ---------- hard rules for (lesson, room) ----------
-    def hard_issues(self, lesson: dict, room: dict, day: int | None = None, pair: int | None = None) -> list[str]:
+    def hard_issues(
+        self, lesson: dict, room: dict, day: int | None = None, pair: int | None = None, check_block: bool = True
+    ) -> list[str]:
         day = lesson["day"] if day is None else day
         pair = lesson["pair"] if pair is None else pair
         issues = []
@@ -82,7 +97,7 @@ class Snapshot:
         t = self.teacher(lesson)
         if t and t["needs_accessible"] and not room["accessible"]:
             issues.append("нет доступной среды для преподавателя")
-        reason = self.blocked(room["id"], day, pair)
+        reason = self.blocked(room["id"], day, pair) if check_block else None
         if reason:
             issues.append(f"закрыта: {reason}")
         return issues
@@ -121,6 +136,8 @@ class Snapshot:
         t = self.teacher(lesson)
         if t:
             for p in t["preferences"]:
+                if p.get("kind") not in ROOM_PREFS:
+                    continue
                 matched = pref_matches(p, room)
                 weight = int(p.get("weight", 5))
                 text = pref_text(p, self)
@@ -220,6 +237,11 @@ def pref_text(p: dict, snap: Snapshot | None = None) -> str:
     kind, value = p.get("kind"), p.get("value")
     if kind == "equipment" and snap:
         value = "компьютеры" if value == "computers" else snap.eq_name(value)
+    if kind == "day":
+        try:
+            value = DAY_SHORT[int(value)]
+        except (TypeError, ValueError, IndexError):
+            pass
     head = PREF_KINDS.get(kind, kind)
     if kind == "max_floor":
         return f"{head} {value}"
@@ -268,6 +290,20 @@ def find_conflicts(snap: Snapshot) -> list[dict]:
             issues = snap.hard_issues(l, room)
             if issues:
                 add("room_unfit", "error", f"«{snap.label(l)}» в {room['name']}: " + "; ".join(issues), [l["id"]])
+    limit = snap.settings.get("max_per_day") or 0
+    if limit:
+        per_day: dict[tuple, list[dict]] = defaultdict(list)
+        for l in snap.lessons.values():
+            for g in l["group_ids"]:
+                per_day[(g, l["day"])].append(l)
+        for (g, day), items in per_day.items():
+            for half in ("odd", "even"):
+                count = len({l["pair"] for l in items if l["week"] in ("all", half)})
+                if count > limit and g in snap.groups:
+                    add("overload", "warning",
+                        f"Группа {snap.groups[g]['name']}: {count} пар в {DAY_SHORT[day]} (лимит {limit})",
+                        [l["id"] for l in items])
+                    break
     order = {"error": 0, "warning": 1}
     out.sort(key=lambda c: (order[c["severity"]], c["kind"], c["message"]))
     return out

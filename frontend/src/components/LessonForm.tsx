@@ -16,6 +16,7 @@ const EMPTY: Omit<Lesson, 'id'> = {
   min_computers: 0,
   room_id: null,
   locked: false,
+  fixed_time: false,
 }
 
 export function LessonForm({ lesson, onClose }: { lesson: Partial<Lesson>; onClose: () => void }) {
@@ -153,8 +154,12 @@ export function LessonForm({ lesson, onClose }: { lesson: Partial<Lesson>; onClo
         </Field>
         <Field label="Закрепить">
           <label className="switch">
-            <input type="checkbox" checked={f.locked} onChange={(e) => set('locked', e.target.checked)} /> 🔒 не двигать при
-            автораспределении
+            <input type="checkbox" checked={f.locked} onChange={(e) => set('locked', e.target.checked)} /> 🔒 не двигать
+            совсем (время и аудиторию)
+          </label>
+          <label className="switch">
+            <input type="checkbox" checked={f.fixed_time} onChange={(e) => set('fixed_time', e.target.checked)} /> 📌 время не
+            менять (аудиторию можно)
           </label>
         </Field>
       </div>

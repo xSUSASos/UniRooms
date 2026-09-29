@@ -1,3 +1,12 @@
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message)
+  }
+}
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method }
   if (body instanceof FormData) init.body = body
@@ -17,7 +26,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     } catch {
       /* not json */
     }
-    throw new Error(message)
+    throw new ApiError(message, res.status)
   }
   return res.json() as Promise<T>
 }

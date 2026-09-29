@@ -18,6 +18,7 @@ import uvicorn
 
 from .api import create_app
 from .db import Database
+from .network import LanServer
 from .seed import seed_demo
 
 log = logging.getLogger("unirooms")
@@ -48,7 +49,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="UniRooms — распределение аудиторий")
     parser.add_argument("--server", action="store_true", help="только сервер, без окна")
     parser.add_argument("--browser", action="store_true", help="открыть в браузере вместо окна")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--port", type=int, help="порт локального сервера (по умолчанию 8765 для --server)")
+    parser.add_argument("--lan", action="store_true", help="сразу открыть доступ по сети (нужен пароль в настройках)")
     parser.add_argument("--db", help="путь к файлу базы данных")
     args = parser.parse_args()
 
@@ -63,9 +65,18 @@ def main() -> None:
     if db.is_empty():
         seed_demo(db)
 
-    port = args.port if args.server else free_port(args.port)
-    config = uvicorn.Config(create_app(db), host="127.0.0.1", port=port, log_level="warning", log_config=None)
+    # the window uses its own loopback port; the network port (8765 by default) stays free for the LAN server
+    port = (args.port or 8765) if args.server else free_port(args.port or 47650)
+    lan = LanServer()
+    app = create_app(db, lan=lan)
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", log_config=None)
     server = uvicorn.Server(config)
+
+    net = db.settings()["network"]
+    if (args.lan or net.get("enabled")) and net.get("password_hash"):
+        lan.start(int(net.get("port", 8765)))
+        if lan.error:
+            log.warning("LAN server: %s", lan.error)
 
     if args.server:
         print(f"UniRooms API: http://127.0.0.1:{port}  (база: {db.path})")

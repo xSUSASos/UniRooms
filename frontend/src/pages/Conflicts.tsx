@@ -9,6 +9,7 @@ const KIND_TITLE: Record<string, string> = {
   unassigned: 'Без аудитории',
   slot: 'Неверное время',
   data: 'Неполные данные',
+  overload: 'Перегруженные дни',
 }
 
 export function ConflictsPage() {
@@ -16,6 +17,7 @@ export function ConflictsPage() {
   const groups = new Map<string, typeof conflicts>()
   for (const c of conflicts) groups.set(c.kind, [...(groups.get(c.kind) ?? []), c])
   const fixable = conflicts.some((c) => ['room', 'room_unfit', 'unassigned'].includes(c.kind))
+  const timeFixable = conflicts.some((c) => ['teacher', 'group', 'overload'].includes(c.kind))
 
   return (
     <div className="page">
@@ -26,10 +28,15 @@ export function ConflictsPage() {
             🛠 Исправить аудитории автоматически
           </button>
         )}
+        {timeFixable && (
+          <button className="primary" onClick={() => runSolve('time-repair')}>
+            🕒 Убрать накладки по времени
+          </button>
+        )}
       </div>
       <p className="muted">
-        Проблемы с аудиториями исправляются кнопкой «Исправить». Накладки преподавателей и групп по времени нужно решить
-        переносом пары (перетащите карточку в сетке или измените занятие).
+        Проблемы с аудиториями исправляет «Исправить». Накладки преподавателей и групп по времени и перегруженные дни —
+        «Убрать накладки»: система перенесёт минимум пар. Можно и вручную — перетащите карточку в сетке.
       </p>
       {!conflicts.length && <Empty>✅ Конфликтов нет</Empty>}
       {[...groups.entries()].map(([kind, items]) => (

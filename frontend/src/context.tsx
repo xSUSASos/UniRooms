@@ -9,8 +9,17 @@ export interface AppCtx {
   confirm: (message: string, okText?: string) => Promise<boolean>
   openLesson: (id: number | null) => void
   editLesson: (lesson: Partial<Lesson> | null) => void
-  runSolve: (mode: 'full' | 'repair') => void
+  runSolve: (mode: SolveMode) => void
   undo: () => void
+}
+
+export type SolveMode = 'full' | 'repair' | 'time-repair' | 'time-full'
+
+export const SOLVE_TITLES: Record<SolveMode, string> = {
+  full: 'Распределить аудитории',
+  repair: 'Исправить аудитории',
+  'time-repair': 'Убрать накладки по времени',
+  'time-full': 'Составить время заново',
 }
 
 export const Ctx = createContext<AppCtx>(null as unknown as AppCtx)
