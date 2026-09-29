@@ -284,6 +284,7 @@ main { flex: 1; min-width: 0; overflow: auto; }
 .grid-wrap { flex: 1; overflow: auto; margin: 0 -28px; padding: 14px 28px 28px; }
 .grid {
   border-collapse: separate; border-spacing: 0; min-width: 100%;
+  table-layout: fixed;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
 }
 .grid th, .grid td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
@@ -291,15 +292,15 @@ main { flex: 1; min-width: 0; overflow: auto; }
 .grid tbody tr:last-child > * { border-bottom: none; }
 .grid thead th {
   position: sticky; top: -14px; z-index: 2; background: var(--surface-2);
-  padding: 9px 10px; font-weight: 600; font-size: 12.5px; min-width: 172px; text-align: left;
+  padding: 9px 10px; font-weight: 600; font-size: 12.5px; width: 196px; text-align: left;
 }
 .grid thead th:first-child { border-top-left-radius: var(--r-lg); }
 .grid thead th:last-child { border-top-right-radius: var(--r-lg); }
 .grid thead th small { font-weight: 400; font-size: 11.5px; font-variant-numeric: tabular-nums; }
-.grid .corner { left: 0; z-index: 3; min-width: 184px; color: var(--muted); font-weight: 500; }
+.grid .corner { left: 0; z-index: 3; width: 190px; color: var(--muted); font-weight: 500; }
 .rowhead {
   position: sticky; left: 0; z-index: 1; background: var(--surface);
-  text-align: left; padding: 9px 12px; font-weight: 400; width: 184px; max-width: 220px; vertical-align: top;
+  text-align: left; padding: 9px 12px; font-weight: 400; vertical-align: top; overflow: hidden;
 }
 .rowhead b { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 13px; }
 .rowhead b svg { color: var(--faint); }
@@ -307,7 +308,7 @@ main { flex: 1; min-width: 0; overflow: auto; }
 .rowhead .tags { font-size: 11px; white-space: normal; color: var(--faint); }
 .unassigned-row .rowhead { background: var(--warn-soft); }
 .unassigned-row .rowhead b, .unassigned-row .rowhead b svg { color: var(--warn); }
-.cell { background: var(--surface); padding: 5px; vertical-align: top; min-width: 172px; height: 58px; transition: background 0.1s; }
+.cell { background: var(--surface); padding: 5px; vertical-align: top; height: 58px; overflow: hidden; transition: background 0.1s; }
 .cell.blocked {
   background: repeating-linear-gradient(135deg, transparent, transparent 7px, var(--surface-2) 7px, var(--surface-2) 14px);
 }

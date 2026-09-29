@@ -327,7 +327,7 @@ export function SchedulePage() {
       )}
 
       <div className="grid-wrap">
-        <table className="grid">
+        <table className="grid" style={{ width: 190 + pairs.length * 196 }}>
           <thead>
             <tr>
               <th className="corner">{{ rooms: 'Аудитория', groups: 'Группа', teachers: 'Преподаватель' }[view]}</th>
