@@ -3,7 +3,24 @@ import { api, ApiError } from './api'
 import { Ctx, type AppCtx, type SolveMode } from './context'
 import type { Conflict, Lesson, Session, SolveResult, State } from './types'
 import { Login } from './components/Login'
-import { Modal } from './components/ui'
+import { Logo, Modal } from './components/ui'
+import {
+  BookOpen,
+  CalendarDays,
+  CircleAlert,
+  CircleCheck,
+  DoorOpen,
+  ExternalLink,
+  GraduationCap,
+  Info,
+  LogOut,
+  Settings as SettingsIcon,
+  Sparkles,
+  TriangleAlert,
+  Undo2,
+  Users,
+  type LucideIcon,
+} from 'lucide-react'
 import { LessonPanel } from './components/LessonPanel'
 import { Assistant } from './components/Assistant'
 import { LessonForm } from './components/LessonForm'
@@ -16,16 +33,19 @@ import { GroupsPage } from './pages/Groups'
 import { LessonsPage } from './pages/Lessons'
 import { SettingsPage } from './pages/Settings'
 
-const PAGES = [
-  ['schedule', '📅 Расписание'],
-  ['conflicts', '⚠ Конфликты'],
-  ['rooms', '🚪 Аудитории'],
-  ['teachers', '👤 Преподаватели'],
-  ['groups', '👥 Группы'],
-  ['lessons', '📚 Занятия'],
-  ['settings', '⚙ Настройки'],
-] as const
-type Page = (typeof PAGES)[number][0]
+type Page = 'schedule' | 'conflicts' | 'rooms' | 'teachers' | 'groups' | 'lessons' | 'settings'
+
+const PAGES: { key: Page; label: string; icon: LucideIcon; section?: string }[] = [
+  { key: 'schedule', label: 'Расписание', icon: CalendarDays },
+  { key: 'conflicts', label: 'Конфликты', icon: TriangleAlert },
+  { key: 'rooms', label: 'Аудитории', icon: DoorOpen, section: 'Справочники' },
+  { key: 'teachers', label: 'Преподаватели', icon: GraduationCap },
+  { key: 'groups', label: 'Группы', icon: Users },
+  { key: 'lessons', label: 'Занятия', icon: BookOpen },
+  { key: 'settings', label: 'Настройки', icon: SettingsIcon, section: 'Система' },
+]
+
+const TOAST_ICON = { ok: CircleCheck, error: CircleAlert, info: Info }
 
 interface Toast {
   id: number
@@ -159,34 +179,45 @@ export default function App() {
       <div className="app">
         <nav className="sidebar">
           <div className="brand">
-            <span className="logo">UR</span>
+            <Logo />
             <div>
               <b>UniRooms</b>
               <small>распределение аудиторий</small>
             </div>
           </div>
-          {PAGES.map(([key, label]) => (
-            <button key={key} className={`nav ${page === key ? 'active' : ''}`} onClick={() => {
-                setPage(key)
-                setOpenId(null)
-              }}>
-              {label}
-              {key === 'conflicts' && conflicts.length > 0 && (
-                <span className={`badge ${errors ? 'red' : 'yellow'}`}>{errors || warnings}</span>
-              )}
-            </button>
+          {PAGES.map(({ key, label, icon: Icon, section }) => (
+            <div key={key}>
+              {section && <div className="nav-label">{section}</div>}
+              <button
+                className={`nav ${page === key ? 'active' : ''}`}
+                onClick={() => {
+                  setPage(key)
+                  setOpenId(null)
+                }}
+              >
+                <Icon size={17} />
+                {label}
+                {key === 'conflicts' && conflicts.length > 0 && (
+                  <span className={`badge ${errors ? 'red' : 'yellow'}`}>{errors || warnings}</span>
+                )}
+              </button>
+            </div>
           ))}
-          <button className={`nav assistant-btn ${assistantOpen ? 'active' : ''}`} onClick={() => setAssistantOpen(!assistantOpen)}>
-            💬 Помощник
+          <div className="nav-label">Инструменты</div>
+          <button className={`nav ${assistantOpen ? 'active' : ''}`} onClick={() => setAssistantOpen(!assistantOpen)}>
+            <Sparkles size={17} />
+            Помощник
           </button>
+          <a className="nav" href="/view" target="_blank" rel="noreferrer" title="Страница для преподавателей и студентов">
+            <ExternalLink size={17} />
+            Публичная страница
+          </a>
           <div className="sidebar-foot">
             <button className="nav" onClick={undo} disabled={!data.history.length} title="Ctrl+Z">
-              ↶ Отменить
+              <Undo2 size={17} />
+              Отменить
             </button>
             {data.history[0] && <small className="muted">Последнее: {data.history[0].description}</small>}
-            <a className="nav" href="/view" target="_blank" rel="noreferrer" title="Страница для преподавателей и студентов">
-              👁 Просмотр расписания
-            </a>
             {session && !session.local && (
               <button
                 className="nav"
@@ -195,7 +226,8 @@ export default function App() {
                   setNeedLogin(true)
                 }}
               >
-                ⎋ Выйти
+                <LogOut size={17} />
+                Выйти
               </button>
             )}
           </div>
@@ -249,11 +281,15 @@ export default function App() {
         </Modal>
       )}
       <div className="toasts">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast ${t.kind}`}>
-            {t.message}
-          </div>
-        ))}
+        {toasts.map((t) => {
+          const Icon = TOAST_ICON[t.kind]
+          return (
+            <div key={t.id} className={`toast ${t.kind}`}>
+              <Icon size={17} />
+              <span>{t.message}</span>
+            </div>
+          )
+        })}
       </div>
     </Ctx.Provider>
   )

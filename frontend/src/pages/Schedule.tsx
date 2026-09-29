@@ -2,14 +2,35 @@ import { useMemo, useState, type DragEvent } from 'react'
 import { api } from '../api'
 import { DAY_SHORT, shortName, useApp, useLookups, type SolveMode } from '../context'
 import type { Cell, GridEval, Lesson, Week } from '../types'
-import { SearchBox } from '../components/ui'
+import { Empty, SearchBox } from '../components/ui'
 import { BlockRoomDialog } from '../components/BlockRoomDialog'
+import {
+  Ban,
+  ChevronDown,
+  CircleDashed,
+  Clock,
+  DoorOpen,
+  Download,
+  FlaskConical,
+  Lock,
+  Monitor,
+  Pin,
+  Plus,
+  Presentation,
+  SearchX,
+  Trees,
+  Wand2,
+  Wifi,
+  Wrench,
+  type LucideIcon,
+} from 'lucide-react'
 
 type View = 'rooms' | 'groups' | 'teachers'
 
 interface Row {
   key: number | 'none'
   title: string
+  icon?: LucideIcon
   sub: string
   tags?: string[]
   lessons: (pair: number) => Lesson[]
@@ -17,7 +38,13 @@ interface Row {
   accepts: (l: Lesson) => boolean
 }
 
-const KIND_ICON: Record<string, string> = { lecture: '🎓', practice: '✏️', lab: '🧪', computer: '💻', shared: '🏟' }
+const KIND_ICON: Record<string, LucideIcon> = {
+  lecture: Presentation,
+  practice: DoorOpen,
+  lab: FlaskConical,
+  computer: Monitor,
+  shared: Trees,
+}
 
 export function SchedulePage() {
   const { data, conflicts, reload, toast, confirm, openLesson, editLesson, runSolve } = useApp()
@@ -84,6 +111,7 @@ export function SchedulePage() {
       rows.push({
         key: 'none',
         title: 'Без аудитории',
+        icon: CircleDashed,
         sub: `${unassigned.length} занятий`,
         lessons: cellOf(index.byRoom, 'none'),
         accepts: () => true,
@@ -94,7 +122,8 @@ export function SchedulePage() {
         .filter((r) => !building || r.building === building)
         .map<Row>((r) => ({
           key: r.id,
-          title: `${KIND_ICON[r.kind] ?? ''} ${r.name}`,
+          title: r.name,
+          icon: KIND_ICON[r.kind],
           sub: `${r.capacity} мест${r.computers ? ` · ${r.computers} ПК` : ''}${r.active ? '' : ' · выкл.'}`,
           tags: r.equipment.map((e) => L.eq.get(e) ?? e),
           lessons: cellOf(index.byRoom, r.id),
@@ -241,32 +270,59 @@ export function SchedulePage() {
           <option value="odd">Числитель</option>
           <option value="even">Знаменатель</option>
         </select>
-        <SearchBox value={q} onChange={setQ} placeholder="Поиск: предмет, группа, ФИО…" />
+        <SearchBox value={q} onChange={setQ} placeholder="Предмет, группа, преподаватель" />
       </div>
 
       <div className="toolbar actions">
-        <button className="primary" onClick={() => runSolve('full')} title="Подобрать аудитории всем незакреплённым занятиям заново">
-          ⚡ Распределить всё
+        <button className="primary" onClick={() => runSolve('repair')} title="Исправить только проблемные занятия, остальное не трогать">
+          <Wrench size={15} />
+          Исправить
         </button>
-        <button onClick={() => runSolve('repair')} title="Исправить только проблемные занятия, остальное не трогать">
-          🛠 Исправить
+        <button onClick={() => runSolve('full')} title="Подобрать аудитории всем незакреплённым занятиям заново">
+          <Wand2 size={15} />
+          Распределить всё
         </button>
         <TimeMenu onPick={runSolve} faculties={L.faculties} />
-        <button onClick={() => setBlockOpen(true)}>🚧 Закрыть аудиторию</button>
-        <button onClick={() => editLesson({ day, pair: pairs[0]?.n ?? 1 })}>＋ Занятие</button>
+        <span className="divider" />
+        <button onClick={() => setBlockOpen(true)}>
+          <Ban size={15} />
+          Закрыть аудиторию
+        </button>
+        <button onClick={() => editLesson({ day, pair: pairs[0]?.n ?? 1 })}>
+          <Plus size={15} />
+          Занятие
+        </button>
         <a className="button" href="/api/export/schedule.xlsx" download>
-          ⬇ Excel
+          <Download size={15} />
+          Excel
         </a>
         <span className="stats">
-          {total} занятий · {noRoom ? <b className="text-warn">{noRoom} без аудитории</b> : 'все с аудиториями'}
+          <span>
+            <b>{total}</b> занятий
+          </span>
+          {noRoom ? (
+            <span className="text-warn">
+              <b className="text-warn">{noRoom}</b> без аудитории
+            </span>
+          ) : (
+            <span>все с аудиториями</span>
+          )}
         </span>
       </div>
 
       {drag && (
         <div className="legend">
-          <span className="lg ok" /> подходит <span className="lg warn" /> с компромиссами <span className="lg bad" /> нельзя
-          (наведите — причина) · перетащите на вкладку дня, чтобы сменить день
-          {!drag.ev && <em> · оцениваю варианты…</em>}
+          <span>
+            <i className="lg ok" /> подходит
+          </span>
+          <span>
+            <i className="lg warn" /> с компромиссами
+          </span>
+          <span>
+            <i className="lg bad" /> нельзя — наведите, чтобы увидеть причину
+          </span>
+          <span>перетащите на день недели, чтобы сменить день</span>
+          {!drag.ev && <span>оцениваю варианты…</span>}
         </div>
       )}
 
@@ -289,7 +345,10 @@ export function SchedulePage() {
             {rows.map((row) => (
               <tr key={row.key} className={row.key === 'none' ? 'unassigned-row' : ''}>
                 <th className="rowhead">
-                  <b>{row.title}</b>
+                  <b>
+                    {row.icon && <row.icon size={14} />}
+                    {row.title}
+                  </b>
                   <small>{row.sub}</small>
                   {row.tags && row.tags.length > 0 && <small className="tags">{row.tags.join(' · ')}</small>}
                 </th>
@@ -327,7 +386,12 @@ export function SchedulePage() {
                         })
                       }
                     >
-                      {blocked && !items.length && <span className="blocked-label">🚧 {blocked}</span>}
+                      {blocked && !items.length && (
+                        <span className="blocked-label">
+                          <Ban size={12} />
+                          {blocked}
+                        </span>
+                      )}
                       {items.map((l) => (
                         <LessonCard
                           key={l.id}
@@ -351,14 +415,13 @@ export function SchedulePage() {
             ))}
           </tbody>
         </table>
-        {!rows.length && <div className="empty">Ничего не найдено</div>}
+        {!rows.length && <Empty icon={SearchX}>Ничего не найдено</Empty>}
         {rows.length < totalRows && (
-          <div className="empty">
-            Показано {rows.length} из {totalRows}. Сузьте выбор фильтром или поиском, или{' '}
+          <div className="more-rows">
+            Показано {rows.length} из {totalRows}. Уточните фильтр или поиск —
             <button className="link" onClick={() => setShowAll(true)}>
-              покажите все
-            </button>{' '}
-            (может работать медленно).
+              показать все
+            </button>
           </div>
         )}
       </div>
@@ -377,7 +440,9 @@ function TimeMenu({ onPick, faculties }: { onPick: (m: SolveMode, faculty?: stri
   return (
     <span className="menu-wrap">
       <button onClick={() => setOpen(!open)} title="Автоматический подбор дня и пары">
-        🕒 Время ▾
+        <Clock size={15} />
+        Время
+        <ChevronDown size={14} />
       </button>
       {open && (
         <div className="menu" onMouseLeave={() => setOpen(false)}>
@@ -391,7 +456,7 @@ function TimeMenu({ onPick, faculties }: { onPick: (m: SolveMode, faculty?: stri
           </button>
           {faculties.length > 0 && (
             <label className="menu-field">
-              для факультета:
+              «Составить заново» только для факультета
               <select value={faculty} onChange={(e) => setFaculty(e.target.value)}>
                 <option value="">все (долго для большого вуза)</option>
                 {faculties.map((f) => (
@@ -447,13 +512,13 @@ function LessonCard(props: {
         e.stopPropagation()
         props.onClick()
       }}
-      title={`${l.subject} — ${data.dicts.lesson_kinds[l.kind]}${l.locked ? '\n🔒 закреплено (снимите замок, чтобы двигать)' : ''}`}
+      title={`${l.subject} — ${data.dicts.lesson_kinds[l.kind]}${l.locked ? '\nЗакреплено: снимите замок, чтобы двигать' : ''}`}
     >
       <div className="card-top">
         <b>{l.subject}</b>
         {l.week !== 'all' && <span className="wk">{l.week === 'odd' ? 'Ч' : 'З'}</span>}
-        {l.online && <span title="онлайн">💻</span>}
-        {l.locked ? <span>🔒</span> : l.fixed_time && <span title="время закреплено">📌</span>}
+        {l.online && <Wifi size={12} aria-label="онлайн" />}
+        {l.locked ? <Lock size={12} aria-label="закреплено" /> : l.fixed_time && <Pin size={12} aria-label="время закреплено" />}
       </div>
       <div className="card-sub">{parts.filter(Boolean).join(' · ')}</div>
     </div>

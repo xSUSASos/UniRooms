@@ -5,6 +5,8 @@ import type { Room } from '../types'
 import { DataTable } from '../components/DataTable'
 import { Checks, Field, Modal, SearchBox } from '../components/ui'
 import { BlockRoomDialog } from '../components/BlockRoomDialog'
+import { Plus } from 'lucide-react'
+import { Accessibility, Ban } from 'lucide-react'
 
 const EMPTY: Omit<Room, 'id'> = {
   name: '',
@@ -36,7 +38,8 @@ export function RoomsPage() {
         <h1>Аудитории</h1>
         <SearchBox value={q} onChange={setQ} placeholder="Номер, корпус, оборудование…" />
         <button className="primary" onClick={() => setEdit({})}>
-          ＋ Аудитория
+          <Plus size={15} />
+          Аудитория
         </button>
       </div>
       <DataTable
@@ -69,8 +72,11 @@ export function RoomsPage() {
               return (
                 <>
                   {!r.active && <span className="pill red">выкл.</span>}
-                  {blocks.length > 0 && <span className="pill yellow">🚧 {blocks.length}</span>}
-                  {r.accessible && <span title="Доступная среда">♿</span>}
+                  {blocks.length > 0 && <span className="pill yellow">
+                      <Ban size={12} />
+                      {blocks.length}
+                    </span>}
+                  {r.accessible && <Accessibility size={15} className="muted" aria-label="Доступная среда" />}
                 </>
               )
             },
@@ -81,7 +87,9 @@ export function RoomsPage() {
               const pct = Math.round((load(r.id) / slots) * 100)
               return (
                 <span className="meter" title={`${load(r.id)} занятий из ${slots} слотов`}>
-                  <span style={{ width: `${Math.min(100, pct)}%` }} />
+                  <span className="track">
+                    <span className="fill" style={{ width: `${Math.min(100, pct)}%` }} />
+                  </span>
                   <em>{pct}%</em>
                 </span>
               )
@@ -184,7 +192,7 @@ function RoomForm({ room, onClose }: { room: Partial<Room>; onClose: () => void 
         </Field>
         <Field label="Доступность">
           <label className="switch">
-            <input type="checkbox" checked={f.accessible} onChange={(e) => set('accessible', e.target.checked)} /> ♿ доступная среда
+            <input type="checkbox" checked={f.accessible} onChange={(e) => set('accessible', e.target.checked)} /> доступная среда
           </label>
         </Field>
         <Field label="Использовать">
@@ -202,8 +210,11 @@ function RoomForm({ room, onClose }: { room: Partial<Room>; onClose: () => void 
           {!blocks.length && <p className="muted">Аудитория открыта всегда.</p>}
           {blocks.map((b) => (
             <div key={b.id} className="issue warning">
-              🚧 {b.day === null ? 'все дни' : DAY_SHORT[b.day]}, {b.pair === null ? 'все пары' : `${b.pair} пара`} —{' '}
+              <Ban size={15} />
+              <span className="grow">
+              {b.day === null ? 'все дни' : DAY_SHORT[b.day]}, {b.pair === null ? 'все пары' : `${b.pair} пара`} —{' '}
               {b.reason || 'без причины'}
+              </span>
               <button
                 className="small"
                 onClick={async () => {
@@ -216,7 +227,10 @@ function RoomForm({ room, onClose }: { room: Partial<Room>; onClose: () => void 
               </button>
             </div>
           ))}
-          <button onClick={() => setBlocking(true)}>＋ Закрыть на время</button>
+          <button onClick={() => setBlocking(true)}>
+            <Plus size={15} />
+            Закрыть на время
+          </button>
         </section>
       )}
       {blocking && <BlockRoomDialog day={0} roomId={room.id} onClose={() => setBlocking(false)} />}

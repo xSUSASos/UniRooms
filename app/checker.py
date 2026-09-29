@@ -341,6 +341,8 @@ def suggest_rooms(snap: Snapshot, lesson_id: int, limit: int = 12) -> list[dict]
     occ = snap.busy()
     rows = []
     for room in snap.rooms.values():
+        if is_shared(room) and room["id"] != lesson["room_id"]:
+            continue  # sports halls and enterprises are not offered for ordinary lessons
         ev = evaluate_room(snap, occ, lesson, room, lesson["day"], lesson["pair"])
         rows.append({"room_id": room["id"], "room": room["name"], "building": room["building"], **ev})
     rank = {"ok": 0, "warn": 1, "bad": 2}

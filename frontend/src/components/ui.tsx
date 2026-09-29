@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { Check, Inbox, Search, X, type LucideIcon } from 'lucide-react'
 
 export function Modal(props: {
   title: string
@@ -18,7 +19,7 @@ export function Modal(props: {
         <header>
           <h2>{props.title}</h2>
           <button className="icon" onClick={props.onClose} aria-label="Закрыть">
-            ✕
+            <X size={17} />
           </button>
         </header>
         <div className="modal-body">{props.children}</div>
@@ -54,7 +55,7 @@ export function Checks(props: {
             className={`chip ${on ? 'on' : ''}`}
             onClick={() => props.onChange(on ? props.value.filter((v) => v !== o.value) : [...props.value, o.value])}
           >
-            {on ? '✓ ' : ''}
+            {on && <Check size={13} strokeWidth={2.5} />}
             {o.label}
           </button>
         )
@@ -63,18 +64,46 @@ export function Checks(props: {
   )
 }
 
-export function Empty(props: { children: ReactNode }) {
-  return <div className="empty">{props.children}</div>
+export function Empty(props: { children: ReactNode; icon?: LucideIcon }) {
+  const Icon = props.icon ?? Inbox
+  return (
+    <div className="empty">
+      <Icon size={28} strokeWidth={1.5} />
+      <div>{props.children}</div>
+    </div>
+  )
 }
 
 export function SearchBox(props: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
-    <input
-      className="search"
-      type="search"
-      placeholder={props.placeholder ?? 'Поиск…'}
-      value={props.value}
-      onChange={(e) => props.onChange(e.target.value)}
-    />
+    <span className="search-wrap">
+      <Search size={15} />
+      <input
+        className="search"
+        type="search"
+        placeholder={props.placeholder ?? 'Поиск'}
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+      />
+    </span>
+  )
+}
+
+/** Brand mark: a 2×2 room grid with one highlighted cell. */
+export function Logo({ size = 32 }: { size?: number }) {
+  return (
+    <svg className="logo" width={size} height={size} viewBox="0 0 32 32" aria-hidden>
+      <defs>
+        <linearGradient id="ur-g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#6366f1" />
+          <stop offset="1" stopColor="#4338ca" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="9" fill="url(#ur-g)" />
+      <rect x="8" y="8" width="7" height="7" rx="2" fill="#fff" />
+      <rect x="17" y="8" width="7" height="7" rx="2" fill="#fff" fillOpacity="0.55" />
+      <rect x="8" y="17" width="7" height="7" rx="2" fill="#fff" fillOpacity="0.55" />
+      <rect x="17" y="17" width="7" height="7" rx="2" fill="#fff" fillOpacity="0.55" />
+    </svg>
   )
 }

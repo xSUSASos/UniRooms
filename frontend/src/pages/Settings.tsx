@@ -4,6 +4,7 @@ import { useApp } from '../context'
 import type { Settings } from '../types'
 import { Field } from '../components/ui'
 import type { LlmStatus } from '../components/Assistant'
+import { Building2, CalendarClock, Clock, Database, Download, FileSpreadsheet, Network, Plus, Projector, SlidersHorizontal, Sparkles, Upload, X } from 'lucide-react'
 
 interface NetInfo {
   enabled: boolean
@@ -104,7 +105,10 @@ export function SettingsPage() {
 
       <div className="cols">
         <section className="box">
-          <h3>Сетка занятий</h3>
+          <h3>
+            <CalendarClock size={16} />
+            Сетка занятий
+          </h3>
           <Field label="Учебных дней в неделе">
             <select value={s.days} onChange={(e) => setS({ ...s, days: Number(e.target.value) })}>
               {[5, 6, 7].map((n) => (
@@ -134,7 +138,7 @@ export function SettingsPage() {
                   <td>
                     {i === s.pairs.length - 1 && s.pairs.length > 1 && (
                       <button className="icon" onClick={() => setS({ ...s, pairs: s.pairs.slice(0, -1) })}>
-                        ✕
+                        <X size={14} />
                       </button>
                     )}
                   </td>
@@ -145,12 +149,16 @@ export function SettingsPage() {
           <button
             onClick={() => setS({ ...s, pairs: [...s.pairs, { n: s.pairs.length + 1, start: '19:00', end: '20:30' }] })}
           >
-            ＋ Пара
+            <Plus size={15} />
+            Пара
           </button>
         </section>
 
         <section className="box">
-          <h3>Важность правил</h3>
+          <h3>
+            <SlidersHorizontal size={16} />
+            Важность правил
+          </h3>
           <p className="muted">Чем больше число, тем сильнее солвер старается выполнить правило.</p>
           {WEIGHTS.map((w) => (
             <WeightRow key={w.key} w={w} s={s} setS={setS} />
@@ -167,7 +175,10 @@ export function SettingsPage() {
         </section>
 
         <section className="box">
-          <h3>Подбор времени</h3>
+          <h3>
+            <Clock size={16} />
+            Подбор времени
+          </h3>
           <Field label="Не больше пар в день у группы" hint="0 — без ограничения (жёсткое правило)">
             <input
               type="number"
@@ -183,7 +194,10 @@ export function SettingsPage() {
         </section>
 
         <section className="box">
-          <h3>Оборудование</h3>
+          <h3>
+            <Projector size={16} />
+            Оборудование
+          </h3>
           <div className="chips">
             {data.equipment.map((e) => (
               <span key={e.code} className="pill">
@@ -198,7 +212,7 @@ export function SettingsPage() {
                     }
                   }}
                 >
-                  ✕
+                  <X size={14} />
                 </button>
               </span>
             ))}
@@ -225,19 +239,25 @@ export function SettingsPage() {
         </section>
 
         <section className="box">
-          <h3>Данные</h3>
+          <h3>
+            <Database size={16} />
+            Данные
+          </h3>
           <p className="muted">
             Файл экспорта — это и есть шаблон для импорта: все листы (аудитории, преподаватели, группы, занятия, закрытия,
             оборудование) с нужными столбцами.
           </p>
           <div className="row gap wrap">
             <a className="button" href="/api/export/data.xlsx" download>
-              ⬇ Экспорт данных (Excel)
+              <Download size={15} />
+              Экспорт данных
             </a>
             <a className="button" href="/api/export/schedule.xlsx" download>
-              ⬇ Расписание (Excel)
+              <FileSpreadsheet size={15} />
+              Расписание в Excel
             </a>
-            <button onClick={() => fileRef.current?.click()}>⬆ Импорт из Excel</button>
+            <button onClick={() => fileRef.current?.click()}><Upload size={15} />
+              Импорт из Excel</button>
             <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
           </div>
           {importErrors.length > 0 && (
@@ -320,7 +340,10 @@ function NetworkBox() {
   if (!info) return null
   return (
     <section className="box">
-      <h3>Доступ по сети</h3>
+      <h3>
+        <Network size={16} />
+        Доступ по сети
+      </h3>
       <p className="muted">
         Другие диспетчеры открывают программу в браузере по адресу ниже и входят по паролю. Преподаватели и студенты
         смотрят расписание на странице <b>/view</b> — без пароля, только чтение. Windows может спросить разрешение для
@@ -338,7 +361,10 @@ function NetworkBox() {
       <div className="row gap">
         {info.running ? (
           <>
-            <span className="pill green">● открыт</span>
+            <span className="pill green">
+              <span className="dot ok" />
+              открыт
+            </span>
             <button disabled={busy || !local} onClick={() => apply(true)}>
               Сохранить
             </button>
@@ -381,14 +407,20 @@ function LlmBox({ s, setS }: { s: Settings; setS: (s: Settings) => void }) {
   }, [])
   return (
     <section className="box">
-      <h3>ИИ-помощник</h3>
+      <h3>
+        <Sparkles size={16} />
+        ИИ-помощник
+      </h3>
       <p className="muted">
         Помощник понимает команды обычным языком. Работает через локальную модель в Ollama — без интернета, данные не
         покидают компьютер.
       </p>
       <p>
         {status?.available ? (
-          <span className="pill green">● подключено: {status.model}</span>
+          <span className="pill green">
+            <span className="dot ok" />
+            подключено: {status.model}
+          </span>
         ) : (
           <span className="pill yellow">
             Ollama не найдена — установите с ollama.com и выполните <code>ollama pull qwen2.5:7b</code>
@@ -467,7 +499,10 @@ function DonstuBox() {
   const pct = job?.total ? Math.round(((job.done ?? 0) / job.total) * 100) : 0
   return (
     <section className="box">
-      <h3>Расписание ДГТУ</h3>
+      <h3>
+        <Building2 size={16} />
+        Расписание ДГТУ
+      </h3>
       <p className="muted">
         Загружает открытое расписание всех групп университета с edu.donstu.ru (без колледжей): аудитории, преподавателей,
         группы и занятия реальной двухнедельки (верхняя + нижняя неделя). Вместимость аудиторий и численность групп не
@@ -480,7 +515,8 @@ function DonstuBox() {
       </div>
       <div className="row gap wrap">
         <button className="primary" disabled={job?.running} onClick={() => start(false)}>
-          ⬇ Загрузить расписание ДГТУ
+          <Download size={15} />
+          Загрузить расписание ДГТУ
         </button>
         <button disabled={job?.running} onClick={() => start(true)} title="Скачать заново, не используя сохранённые файлы">
           Обновить с сайта
@@ -496,7 +532,7 @@ function DonstuBox() {
       )}
       {!job?.running && job?.result && (
         <p className="text-ok">
-          ✓ Загружено: {job.result.groups} групп, {job.result.teachers} преподавателей, {job.result.rooms} аудиторий,{' '}
+          Загружено: {job.result.groups} групп, {job.result.teachers} преподавателей, {job.result.rooms} аудиторий,{' '}
           {job.result.lessons} занятий
           {job.result.window && ` (недели с ${job.result.window[0]})`}
         </p>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useApp, type SolveMode } from '../context'
+import { Check, Info, Loader2, SendHorizontal, Sparkles, X } from 'lucide-react'
 
 interface Action {
   action: string
@@ -132,7 +133,10 @@ export function Assistant({ onClose }: { onClose: () => void }) {
     <aside className="panel assistant">
       <header>
         <div>
-          <h2>💬 Помощник</h2>
+          <h2 className="inline-icon">
+            <Sparkles size={17} />
+            Помощник
+          </h2>
           <small>
             {status === null
               ? 'проверяю ИИ…'
@@ -142,15 +146,18 @@ export function Assistant({ onClose }: { onClose: () => void }) {
           </small>
         </div>
         <button className="icon" onClick={onClose} aria-label="Закрыть">
-          ✕
+          <X size={17} />
         </button>
       </header>
 
       {status && !status.available && (
         <div className="hint-box">
+          <Info size={16} />
+          <span>
           Чтобы помощник понимал свободные фразы, установите <b>Ollama</b> (ollama.com) и скачайте модель командой{' '}
           <code>ollama pull qwen2.5:7b</code>. Всё работает локально, без интернета. Без неё понимаются команды вида
           «закрой А-202», «убери накладки», «распредели аудитории».
+          </span>
         </div>
       )}
 
@@ -181,7 +188,12 @@ export function Assistant({ onClose }: { onClose: () => void }) {
                     </button>
                   </div>
                 )}
-                {m.state === 'done' && <small className="text-ok">✓ выполнено</small>}
+                {m.state === 'done' && (
+                  <small className="text-ok inline-icon">
+                    <Check size={13} />
+                    выполнено
+                  </small>
+                )}
                 {m.state === 'cancelled' && <small className="muted">отменено</small>}
               </div>
             ) : (
@@ -203,7 +215,12 @@ export function Assistant({ onClose }: { onClose: () => void }) {
             )}
           </div>
         ))}
-        {busy && <div className="msg bot typing">думаю…</div>}
+        {busy && (
+          <div className="msg bot typing">
+            <Loader2 size={14} className="spin" />
+            думаю…
+          </div>
+        )}
         <div ref={bottom} />
       </div>
 
@@ -221,7 +238,7 @@ export function Assistant({ onClose }: { onClose: () => void }) {
           autoFocus
         />
         <button className="primary" disabled={busy || !text.trim()}>
-          ➤
+          <SendHorizontal size={16} />
         </button>
       </form>
     </aside>

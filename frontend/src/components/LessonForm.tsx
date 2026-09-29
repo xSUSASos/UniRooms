@@ -152,7 +152,7 @@ export function LessonForm({ lesson, onClose }: { lesson: Partial<Lesson>; onClo
         </Field>
         <Field label="Формат">
           <label className="switch">
-            <input type="checkbox" checked={f.online} onChange={(e) => set('online', e.target.checked)} /> 💻 онлайн
+            <input type="checkbox" checked={f.online} onChange={(e) => set('online', e.target.checked)} /> онлайн
             (аудитория не нужна)
           </label>
         </Field>
@@ -161,11 +161,11 @@ export function LessonForm({ lesson, onClose }: { lesson: Partial<Lesson>; onClo
         </Field>
         <Field label="Закрепить">
           <label className="switch">
-            <input type="checkbox" checked={f.locked} onChange={(e) => set('locked', e.target.checked)} /> 🔒 не двигать
+            <input type="checkbox" checked={f.locked} onChange={(e) => set('locked', e.target.checked)} /> не двигать
             совсем (время и аудиторию)
           </label>
           <label className="switch">
-            <input type="checkbox" checked={f.fixed_time} onChange={(e) => set('fixed_time', e.target.checked)} /> 📌 время не
+            <input type="checkbox" checked={f.fixed_time} onChange={(e) => set('fixed_time', e.target.checked)} /> время не
             менять (аудиторию можно)
           </label>
         </Field>

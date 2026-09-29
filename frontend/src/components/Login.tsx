@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../api'
+import { Logo } from './ui'
 
 /** Shown to dispatchers who open the app from another computer in the network. */
 export function Login({ onDone }: { onDone: () => void }) {
@@ -30,7 +31,7 @@ export function Login({ onDone }: { onDone: () => void }) {
         }}
       >
         <div className="brand">
-          <span className="logo">UR</span>
+          <Logo />
           <div>
             <b>UniRooms</b>
             <small>вход для редактирования</small>
@@ -48,7 +49,7 @@ export function Login({ onDone }: { onDone: () => void }) {
           Войти
         </button>
         <a href="/view" className="muted">
-          Только посмотреть расписание →
+          Только посмотреть расписание
         </a>
       </form>
     </div>

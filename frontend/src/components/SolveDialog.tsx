@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { api } from '../api'
 import { DAY_SHORT, SOLVE_TITLES, useApp, type SolveMode } from '../context'
 import type { SolveResult } from '../types'
-import { Modal } from './ui'
+import { Empty, Modal } from './ui'
+import { CircleCheck, Info, Loader2, TriangleAlert } from 'lucide-react'
 
 export function SolveDialog(props: { mode: SolveMode; result: SolveResult | null; onClose: () => void }) {
   const { data, reload, toast, openLesson } = useApp()
@@ -53,7 +54,7 @@ export function SolveDialog(props: { mode: SolveMode; result: SolveResult | null
     >
       {!r && (
         <div className="solving">
-          <div className="spinner" />
+          <Loader2 size={28} className="spin" />
           <p>
             {timeMode ? 'Подбираю время и аудитории' : 'Подбираю аудитории'}… (не дольше {data.settings.time_limit} с)
           </p>
@@ -62,7 +63,9 @@ export function SolveDialog(props: { mode: SolveMode; result: SolveResult | null
       {r && !r.ok && <p className="text-bad">{r.message}</p>}
       {r && r.ok && (
         <>
-          {r.changes.length === 0 && r.unassigned.length === 0 && <p>✅ Всё уже распределено оптимально — изменений не нужно.</p>}
+          {r.changes.length === 0 && r.unassigned.length === 0 && (
+            <Empty icon={CircleCheck}>Всё уже распределено оптимально — изменений не нужно.</Empty>
+          )}
           {r.changes.length > 0 && (
             <>
               <p>
@@ -104,13 +107,17 @@ export function SolveDialog(props: { mode: SolveMode; result: SolveResult | null
               <h3 className="text-warn">Не удалось разместить: {r.unassigned.length}</h3>
               {props.mode === 'full' && data.lessons.length > 3000 && (
                 <p className="hint-box">
-                  Для большого расписания лучше «🛠 Исправить»: он меняет только проблемные занятия, а остальные оставляет в
+                  <Info size={16} />
+                  Для большого расписания лучше «Исправить»: он меняет только проблемные занятия, а остальные оставляет в
                   их аудиториях — так свободных мест хватает всем.
                 </p>
               )}
               {r.unassigned.map((u) => (
                 <div key={u.lesson_id} className="issue warning clickable" onClick={() => openLesson(u.lesson_id)}>
-                  <b>{u.label}</b> — {u.reason}
+                  <TriangleAlert size={15} />
+                  <span className="grow">
+                    <b>{u.label}</b> — {u.reason}
+                  </span>
                 </div>
               ))}
             </>

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { Empty } from './ui'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 
 export interface Column<T> {
   title: string
@@ -45,7 +46,7 @@ export function DataTable<T extends { id: number }>(props: {
                 }}
               >
                 {c.title}
-                {sortIdx === i && (dir > 0 ? ' ▲' : ' ▼')}
+                {sortIdx === i && <span className="sort">{dir > 0 ? <ChevronUp size={13} /> : <ChevronDown size={13} />}</span>}
               </th>
             ))}
           </tr>

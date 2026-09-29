@@ -4,6 +4,8 @@ import { DAY_SHORT, useApp, useLookups } from '../context'
 import type { Pref, Teacher } from '../types'
 import { DataTable } from '../components/DataTable'
 import { Field, Modal, SearchBox } from '../components/ui'
+import { Plus } from 'lucide-react'
+import { Accessibility, X } from 'lucide-react'
 
 const EMPTY: Omit<Teacher, 'id'> = { name: '', department: '', needs_accessible: false, unavailable: [], preferences: [] }
 
@@ -44,7 +46,8 @@ export function TeachersPage() {
         <h1>Преподаватели</h1>
         <SearchBox value={q} onChange={setQ} placeholder="ФИО, кафедра…" />
         <button className="primary" onClick={() => setEdit({})}>
-          ＋ Преподаватель
+          <Plus size={15} />
+          Преподаватель
         </button>
       </div>
       <DataTable
@@ -59,7 +62,10 @@ export function TeachersPage() {
             title: 'Пожелания',
             render: (t) => (
               <span className="chips">
-                {t.needs_accessible && <span className="pill">♿ доступная среда</span>}
+                {t.needs_accessible && <span className="pill">
+                    <Accessibility size={12} />
+                    доступная среда
+                  </span>}
                 {t.preferences.map((p, i) => (
                   <span key={i} className={`pill ${p.mode === 'avoid' ? 'red' : 'green'}`} title={`важность ${p.weight}/10`}>
                     {prefLabel(p, L.eq)}
@@ -154,7 +160,7 @@ function TeacherForm({ teacher, onClose }: { teacher: Partial<Teacher>; onClose:
         </Field>
         <Field label="Особые условия">
           <label className="switch">
-            <input type="checkbox" checked={f.needs_accessible} onChange={(e) => set('needs_accessible', e.target.checked)} /> ♿
+            <input type="checkbox" checked={f.needs_accessible} onChange={(e) => set('needs_accessible', e.target.checked)} />
             нужна доступная среда (обязательно)
           </label>
         </Field>
@@ -201,7 +207,7 @@ function TeacherForm({ teacher, onClose }: { teacher: Partial<Teacher>; onClose:
               <b>{p.weight}</b>
             </label>
             <button className="icon" onClick={() => set('preferences', f.preferences.filter((_, j) => j !== i))} aria-label="Удалить">
-              ✕
+              <X size={15} />
             </button>
           </div>
         ))}
@@ -210,7 +216,8 @@ function TeacherForm({ teacher, onClose }: { teacher: Partial<Teacher>; onClose:
             set('preferences', [...f.preferences, { kind: 'building', value: L.buildings[0] ?? '', mode: 'prefer', weight: 5 }])
           }
         >
-          ＋ Пожелание
+          <Plus size={15} />
+          Пожелание
         </button>
       </section>
 
@@ -234,7 +241,7 @@ function TeacherForm({ teacher, onClose }: { teacher: Partial<Teacher>; onClose:
                 </th>
                 {data.settings.pairs.map((p) => (
                   <td key={p.n} className={isOff(d, p.n) ? 'off' : ''} onClick={() => toggle(d, p.n)}>
-                    {isOff(d, p.n) ? '✕' : ''}
+                    {isOff(d, p.n) ? <X size={13} /> : null}
                   </td>
                 ))}
               </tr>

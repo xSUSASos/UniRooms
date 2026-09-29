@@ -37,7 +37,7 @@ export function BlockRoomDialog({ day, onClose, roomId }: { day: number; onClose
 
   return (
     <Modal
-      title="🚧 Закрыть аудиторию"
+      title="Закрыть аудиторию"
       onClose={onClose}
       footer={
         <>

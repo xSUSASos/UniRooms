@@ -1,5 +1,6 @@
 import { useApp } from '../context'
 import { Empty } from '../components/ui'
+import { CircleAlert, CircleCheck, Clock, TriangleAlert, Wrench } from 'lucide-react'
 
 const KIND_TITLE: Record<string, string> = {
   room: 'Две пары в одной аудитории',
@@ -25,12 +26,14 @@ export function ConflictsPage() {
         <h1>Конфликты</h1>
         {fixable && (
           <button className="primary" onClick={() => runSolve('repair')}>
-            🛠 Исправить аудитории автоматически
+            <Wrench size={15} />
+            Исправить аудитории
           </button>
         )}
         {timeFixable && (
           <button className="primary" onClick={() => runSolve('time-repair')}>
-            🕒 Убрать накладки по времени
+            <Clock size={15} />
+            Убрать накладки по времени
           </button>
         )}
       </div>
@@ -38,7 +41,7 @@ export function ConflictsPage() {
         Проблемы с аудиториями исправляет «Исправить». Накладки преподавателей и групп по времени и перегруженные дни —
         «Убрать накладки»: система перенесёт минимум пар. Можно и вручную — перетащите карточку в сетке.
       </p>
-      {!conflicts.length && <Empty>✅ Конфликтов нет</Empty>}
+      {!conflicts.length && <Empty icon={CircleCheck}>Конфликтов нет</Empty>}
       {[...groups.entries()].map(([kind, items]) => (
         <section key={kind}>
           <h3>
@@ -46,7 +49,8 @@ export function ConflictsPage() {
           </h3>
           {items.map((c, i) => (
             <div key={i} className={`issue ${c.severity} clickable`} onClick={() => openLesson(c.lesson_ids[0])}>
-              {c.severity === 'error' ? '⛔' : '⚠'} {c.message}
+              {c.severity === 'error' ? <CircleAlert size={15} /> : <TriangleAlert size={15} />}
+              <span className="grow">{c.message}</span>
             </div>
           ))}
         </section>

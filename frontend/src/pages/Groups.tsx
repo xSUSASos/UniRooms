@@ -4,6 +4,7 @@ import { useApp, useLookups } from '../context'
 import type { Group } from '../types'
 import { DataTable } from '../components/DataTable'
 import { Field, Modal, SearchBox } from '../components/ui'
+import { Plus } from 'lucide-react'
 
 const EMPTY: Omit<Group, 'id'> = { name: '', course: 1, size: 25, home_building: '', faculty: '' }
 
@@ -35,7 +36,8 @@ export function GroupsPage() {
           </select>
         )}
         <button className="primary" onClick={() => setEdit({})}>
-          ＋ Группа
+          <Plus size={15} />
+          Группа
         </button>
       </div>
       <DataTable

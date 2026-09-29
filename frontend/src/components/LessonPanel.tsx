@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { DAY_SHORT, useApp, useLookups } from '../context'
 import type { Suggestion } from '../types'
+import { Check, CircleAlert, Lock, Pencil, TriangleAlert, Unlock, X } from 'lucide-react'
 
 export function LessonPanel({ id, onClose }: { id: number; onClose: () => void }) {
   const { data, conflicts, reload, toast, editLesson, confirm } = useApp()
@@ -58,7 +59,7 @@ export function LessonPanel({ id, onClose }: { id: number; onClose: () => void }
           </small>
         </div>
         <button className="icon" onClick={onClose} aria-label="Закрыть">
-          ✕
+          <X size={17} />
         </button>
       </header>
 
@@ -86,9 +87,22 @@ export function LessonPanel({ id, onClose }: { id: number; onClose: () => void }
           }
           title="Закреплённое занятие автораспределение не двигает"
         >
-          {l.locked ? '🔓 Открепить' : '🔒 Закрепить'}
+          {l.locked ? (
+            <>
+              <Unlock size={15} />
+              Открепить
+            </>
+          ) : (
+            <>
+              <Lock size={15} />
+              Закрепить
+            </>
+          )}
         </button>
-        <button onClick={() => editLesson(l)}>✎ Изменить</button>
+        <button onClick={() => editLesson(l)}>
+          <Pencil size={15} />
+          Изменить
+        </button>
         {room && (
           <button onClick={() => act(() => api.post(`/api/lessons/${l.id}/move`, { clear_room: true }), 'Аудитория снята')}>
             Снять аудиторию
@@ -101,7 +115,8 @@ export function LessonPanel({ id, onClose }: { id: number; onClose: () => void }
           <h3>Проблемы</h3>
           {mine.map((c, i) => (
             <div key={i} className={`issue ${c.severity}`}>
-              {c.message}
+              {c.severity === 'error' ? <CircleAlert size={15} /> : <TriangleAlert size={15} />}
+              <span className="grow">{c.message}</span>
             </div>
           ))}
         </section>
@@ -136,13 +151,22 @@ function SuggestionRow({ s, current, onPlace }: { s: Suggestion; current: boolea
       </div>
       <ul>
         {s.issues.map((t) => (
-          <li key={t} className="bad">✗ {t}</li>
+          <li key={t} className="bad">
+            <X size={13} />
+            {t}
+          </li>
         ))}
         {s.cons.map((t) => (
-          <li key={t} className="warn">⚠ {t}</li>
+          <li key={t} className="warn">
+            <TriangleAlert size={13} />
+            {t}
+          </li>
         ))}
         {s.pros.map((t) => (
-          <li key={t} className="ok">✓ {t}</li>
+          <li key={t} className="ok">
+            <Check size={13} />
+            {t}
+          </li>
         ))}
       </ul>
     </div>

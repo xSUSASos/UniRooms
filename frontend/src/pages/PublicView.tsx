@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
+import { Logo, SearchBox } from '../components/ui'
 import type { Pair } from '../types'
 
 type Kind = 'group' | 'teacher' | 'room'
@@ -113,7 +114,7 @@ export function PublicView() {
     <div className="public">
       <header className="public-head">
         <div className="brand">
-          <span className="logo">UR</span>
+          <Logo />
           <div>
             <b>Расписание занятий</b>
             <small>обновляется автоматически</small>
@@ -134,13 +135,7 @@ export function PublicView() {
             </button>
           ))}
         </div>
-        <input
-          className="search"
-          type="search"
-          placeholder={`Найти: ${KIND_TITLE[kind].toLowerCase()}…`}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+        <SearchBox value={q} onChange={setQ} placeholder={`Найти: ${KIND_TITLE[kind].toLowerCase()}`} />
         <select value={id ?? ''} onChange={(e) => setId(e.target.value ? Number(e.target.value) : null)}>
           <option value="">— выберите —</option>
           {options.map((o) => (

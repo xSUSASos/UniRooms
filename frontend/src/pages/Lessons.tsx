@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { DAY_SHORT, useApp, useLookups } from '../context'
 import { DataTable } from '../components/DataTable'
 import { SearchBox } from '../components/ui'
+import { Plus } from 'lucide-react'
+import { Lock, TriangleAlert } from 'lucide-react'
 
 export function LessonsPage() {
   const { data, editLesson, conflicts } = useApp()
@@ -45,7 +47,8 @@ export function LessonsPage() {
           <input type="checkbox" checked={onlyProblems} onChange={(e) => setOnlyProblems(e.target.checked)} /> только с проблемами
         </label>
         <button className="primary" onClick={() => editLesson({})}>
-          ＋ Занятие
+          <Plus size={15} />
+          Занятие
         </button>
       </div>
       <p className="muted">Показано: {rows.length} из {data.lessons.length}</p>
@@ -64,8 +67,8 @@ export function LessonsPage() {
             title: 'Аудитория',
             render: (l) => (
               <>
-                {L.rooms.get(l.room_id ?? -1)?.name ?? <span className="text-warn">—</span>} {l.locked && '🔒'}{' '}
-                {problems.has(l.id) && <span title="Есть проблемы">⚠</span>}
+                {L.rooms.get(l.room_id ?? -1)?.name ?? <span className="text-warn">—</span>} {l.locked && <Lock size={13} className="muted" />}{' '}
+                {problems.has(l.id) && <TriangleAlert size={14} className="text-warn" aria-label="Есть проблемы" />}
               </>
             ),
             sort: (l) => L.rooms.get(l.room_id ?? -1)?.name ?? '',
