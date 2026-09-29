@@ -99,6 +99,24 @@ def test_demo_solves_and_excel_roundtrip():
     assert excel_io.export_schedule(db2)[:2] == b"PK"
 
 
+def test_old_database_is_migrated(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    con = sqlite3.connect(path)
+    con.executescript("""
+        CREATE TABLE lessons(id INTEGER PRIMARY KEY, subject TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'practice',
+            teacher_id INTEGER, day INTEGER NOT NULL DEFAULT 0, pair INTEGER NOT NULL DEFAULT 1,
+            week TEXT NOT NULL DEFAULT 'all', required_equipment TEXT NOT NULL DEFAULT '[]',
+            min_computers INTEGER NOT NULL DEFAULT 0, room_id INTEGER, locked INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO lessons(subject) VALUES ('Old');
+    """)
+    con.commit()
+    con.close()
+    db = Database(path)
+    assert db.lessons()[0]["fixed_time"] is False
+
+
 def test_api_smoke():
     db = Database(":memory:")
     seed_demo(db)

@@ -111,6 +111,11 @@ class ExecIn(BaseModel):
     action: dict
 
 
+class ChooseIn(BaseModel):
+    raw: dict
+    lesson_id: int
+
+
 class ApplyIn(BaseModel):
     changes: list[dict]
     description: str = "Автораспределение"
@@ -397,12 +402,21 @@ def create_app(db: Database, static_dir: Path | None = None, lan: network.LanSer
 
     # ---------- assistant ----------
     @api.get("/assistant/status")
-    def assistant_status():
-        return assistant.status(db.settings())
+    def assistant_status(warm: bool = False):
+        st = assistant.status(db.settings())
+        if warm and st["available"]:
+            assistant.warm_up(db.settings())
+        return st
 
     @api.post("/assistant/interpret")
     def assistant_interpret(body: AskIn):
         return assistant.interpret(db, body.text)
+
+    @api.post("/assistant/choose")
+    def assistant_choose(body: ChooseIn):
+        plan = assistant.resolve(Snapshot(db), {**body.raw, "lesson_id": body.lesson_id})
+        plan["raw"] = body.raw
+        return plan
 
     @api.post("/assistant/execute")
     def assistant_execute(body: ExecIn):

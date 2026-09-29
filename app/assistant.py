@@ -8,6 +8,7 @@ from __future__ import annotations
 import difflib
 import json
 import re
+import threading
 import urllib.error
 import urllib.request
 
@@ -70,7 +71,19 @@ SYSTEM_PROMPT = """Ты — помощник диспетчера учебног
 - explain — объяснить, почему занятие стоит в этой аудитории/что с ним не так: subject?, group?, teacher?, day?, pair?
 - answer — если это вопрос о программе или непонятная просьба: text (короткий ответ по-русски)
 
-Названия пиши так, как они есть в данных, если можешь их узнать.
+Названия пиши так, как они есть в данных, если можешь их узнать. Отвечай только по-русски.
+Для оборудования в pref_value пиши КОД из списка ниже (например projector), для компьютеров — computers.
+Группу (например ИВТ-21) всегда клади в поле group, дисциплину — в subject.
+
+Справка о программе (для action=answer, отвечай только по ней):
+- Импорт/экспорт: Настройки → «Экспорт данных (Excel)» даёт шаблон со всеми листами; заполненный файл загружается
+  кнопкой «Импорт из Excel» там же. Расписание в Excel — кнопка «⬇ Excel» на странице «Расписание».
+- «⚡ Распределить всё» подбирает аудитории всем незакреплённым занятиям; «🛠 Исправить» — только проблемным.
+- «🕒 Время» → «Убрать накладки» или «Составить заново» подбирает день и пару.
+- «🚧 Закрыть аудиторию» — ремонт/мероприятие; снять закрытие — в карточке аудитории.
+- 🔒 — занятие не двигается совсем, 📌 — не меняется время. Ctrl+Z — отменить последнее изменение.
+- Пожелания и недоступное время преподавателя — в разделе «Преподаватели».
+- Доступ по сети и страница /view для студентов — Настройки → «Доступ по сети».
 Аудитории: {rooms}
 Преподаватели: {teachers}
 Группы: {groups}
@@ -100,6 +113,21 @@ def _http(url: str, payload: dict | None = None, timeout: float = 120) -> dict:
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def warm_up(settings: dict) -> None:
+    """Load the model into memory in the background so the first command is fast."""
+    st = status(settings)
+    if not st["available"]:
+        return
+
+    def run():
+        try:
+            _http(f"{st['url']}/api/generate", {"model": st["model"], "prompt": "", "keep_alive": "30m"}, timeout=300)
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 def status(settings: dict) -> dict:
@@ -224,14 +252,58 @@ def interpret(db: Database, text: str) -> dict:
                 " Для свободных команд установите Ollama (ollama.com) и модель: ollama pull qwen2.5:7b")
         return {"ok": False, "message": "Не понял команду. Попробуйте: «закрой А-202 в среду», "
                                         "«убери накладки», «распредели аудитории»." + hint}
-    # the model sometimes misses days/pairs written in words — fill them from the text
-    if raw.get("action") in ("block_room", "set_unavailable", "move_lesson", "lock_lesson", "explain"):
-        if raw.get("day") is None and raw.get("action") != "move_lesson":
-            raw["day"] = parse_day(text)
+    fill_from_text(snap, raw, text)
     plan = resolve(snap, raw)
     plan["raw"] = raw
     plan["llm"] = used_llm
     return plan
+
+
+def _found_in_text(text: str, names: list[str]) -> list[str]:
+    t = norm(text)
+    hits = [n for n in names if len(norm(n)) >= 3 and norm(n) in t]
+    # «А-202» also matches inside «А-2021»-like strings; prefer the longest names
+    return [n for n in hits if not any(n != m and norm(n) in norm(m) for m in hits)]
+
+
+def fill_from_text(snap: Snapshot, raw: dict, text: str) -> None:
+    """The model sometimes drops or garbles names and days — recover them from the text itself."""
+    action = raw.get("action")
+    if action in ("block_room", "set_unavailable", "lock_lesson", "explain") and raw.get("day") is None:
+        raw["day"] = parse_day(text)
+    if action == "move_lesson" and not any(raw.get(k) is not None for k in ("to_day", "to_pair", "to_room")):
+        # «перенеси … на пятую пару / на четверг»: what follows «на» is the target, not the source
+        m = re.search(r"(?<![а-яё])на\s+(.+)$", text.lower())
+        if m:
+            target_pair, target_day = parse_pair(m.group(1)), parse_day(m.group(1))
+            if target_pair:
+                raw["to_pair"] = target_pair
+                if raw.get("pair") == target_pair:
+                    raw.pop("pair")
+            if target_day is not None:
+                raw["to_day"] = target_day
+                if raw.get("day") == target_day:
+                    raw.pop("day")
+    if action in ("move_lesson", "lock_lesson", "explain") and not raw.get("group"):
+        groups = _found_in_text(text, [g["name"] for g in snap.groups.values()])
+        if len(groups) == 1:
+            raw["group"] = groups[0]
+    if action in ("block_room", "unblock_room") and not raw.get("room"):
+        rooms = _found_in_text(text, [r["name"] for r in snap.rooms.values()])
+        if len(rooms) == 1:
+            raw["room"] = rooms[0]
+    if action == "add_preference" and raw.get("pref_kind") == "equipment":
+        value = str(raw.get("pref_value") or "")
+        known = set(snap.equipment_names) | {"computers"}
+        if value not in known and not fuzzy(value, dict(enumerate(snap.equipment_names.values()))):
+            t = norm(text)
+            stems = {code: norm(name)[:6] for code, name in snap.equipment_names.items()}
+            stems["computers"] = "компьют"
+            hits = [code for code, stem in stems.items() if stem and stem in t]
+            if "пк" in re.findall(r"[а-яa-z]+", text.lower()):
+                hits.append("computers")
+            if len(set(hits)) == 1:
+                raw["pref_value"] = hits[0]
 
 
 def _one(kind: str, ids: list[int], options: dict[int, str], query: str | None) -> tuple[int | None, str | None]:
@@ -304,12 +376,21 @@ def resolve(snap: Snapshot, raw: dict) -> dict:
                            + f". Затронуто занятий: {len(affected)}"}
 
     if action in ("move_lesson", "lock_lesson", "explain"):
-        found = find_lessons(snap, raw)
+        chosen = snap.lessons.get(int(raw["lesson_id"])) if raw.get("lesson_id") else None
+        found = [chosen] if chosen else find_lessons(snap, raw)
         if not found:
             return {"ok": False, "message": "Не нашёл такое занятие — уточните дисциплину, группу или день."}
         if len(found) > 1:
-            listing = "; ".join(f"{snap.label(l)} — {DAY_SHORT[l['day']]} {l['pair']}" for l in found[:6])
-            return {"ok": False, "message": f"Подходит несколько занятий ({len(found)}): {listing}. Уточните."}
+            found.sort(key=lambda l: (l["day"], l["pair"]))
+            return {
+                "ok": False,
+                "message": f"Подходит несколько занятий ({len(found)}). Какое именно?",
+                "choices": [
+                    {"lesson_id": l["id"], "label": f"{snap.label(l)} — {DAY_SHORT[l['day']]} {l['pair']} пара"}
+                    for l in found[:8]
+                ],
+                "raw": raw,
+            }
         l = found[0]
         where = f"{snap.label(l)} ({DAY_SHORT[l['day']]} {l['pair']} пара)"
         if action == "lock_lesson":

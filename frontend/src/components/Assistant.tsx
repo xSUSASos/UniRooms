@@ -10,6 +10,8 @@ interface Action {
 
 interface Plan {
   ok: boolean
+  choices?: { lesson_id: number; label: string }[]
+  raw?: Record<string, unknown>
   message?: string
   reply?: string
   summary?: string
@@ -52,7 +54,7 @@ export function Assistant({ onClose }: { onClose: () => void }) {
   const bottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    api.get<LlmStatus>('/api/assistant/status').then(setStatus).catch(() => setStatus(null))
+    api.get<LlmStatus>('/api/assistant/status?warm=true').then(setStatus).catch(() => setStatus(null))
   }, [])
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: 'smooth' })
@@ -86,6 +88,31 @@ export function Assistant({ onClose }: { onClose: () => void }) {
     }
   }
 
+  async function handle(plan: Plan) {
+    if (!plan.ok) push({ role: 'bot', text: plan.message ?? 'Не понял', plan: plan.choices ? plan : undefined })
+    else if (plan.reply) push({ role: 'bot', text: plan.reply })
+    else if (plan.action) {
+      const msg: Msg = { id: nextId.current++, role: 'bot', text: plan.summary ?? '', plan, state: 'pending' }
+      setMsgs((list) => [...list, msg])
+      if (plan.auto) {
+        setBusy(false)
+        await execute(msg)
+      }
+    }
+  }
+
+  async function choose(msg: Msg, lessonId: number) {
+    update(msg.id, { state: 'done' })
+    setBusy(true)
+    try {
+      await handle(await api.post<Plan>('/api/assistant/choose', { raw: msg.plan?.raw, lesson_id: lessonId }))
+    } catch (e) {
+      toast((e as Error).message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function send(value = text) {
     const q = value.trim()
     if (!q || busy) return
@@ -93,17 +120,7 @@ export function Assistant({ onClose }: { onClose: () => void }) {
     push({ role: 'user', text: q })
     setBusy(true)
     try {
-      const plan = await api.post<Plan>('/api/assistant/interpret', { text: q })
-      if (!plan.ok) push({ role: 'bot', text: plan.message ?? 'Не понял' })
-      else if (plan.reply) push({ role: 'bot', text: plan.reply })
-      else if (plan.action) {
-        const msg: Msg = { id: nextId.current++, role: 'bot', text: plan.summary ?? '', plan, state: 'pending' }
-        setMsgs((list) => [...list, msg])
-        if (plan.auto) {
-          setBusy(false)
-          await execute(msg)
-        }
-      }
+      await handle(await api.post<Plan>('/api/assistant/interpret', { text: q }))
     } catch (e) {
       toast((e as Error).message, 'error')
     } finally {
@@ -169,6 +186,15 @@ export function Assistant({ onClose }: { onClose: () => void }) {
               </div>
             ) : (
               <p className="pre">{m.text}</p>
+            )}
+            {m.plan?.choices && m.state !== 'done' && (
+              <div className="choices">
+                {m.plan.choices.map((c) => (
+                  <button key={c.lesson_id} className="small" disabled={busy} onClick={() => choose(m, c.lesson_id)}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
             )}
             {m.followUp && (
               <button className="small" onClick={() => runSolve(m.followUp!.mode)}>

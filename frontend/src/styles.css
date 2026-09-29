@@ -96,6 +96,8 @@ a.nav { text-decoration: none; color: var(--text); display: flex; }
 .msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
 .msg.bot { align-self: flex-start; background: var(--surface-2); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
 .msg.typing { color: var(--muted); font-style: italic; }
+.choices { display: flex; flex-direction: column; gap: 4px; align-items: stretch; width: 100%; }
+.choices button { white-space: normal; text-align: left; justify-content: flex-start; }
 .plan { display: flex; flex-direction: column; gap: 4px; }
 .plan .row { margin: 4px 0 0; }
 .composer { display: flex; gap: 6px; border-top: 1px solid var(--border); padding-top: 10px; }
